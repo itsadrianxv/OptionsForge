@@ -4,11 +4,11 @@ TimeDecayMonitor - 时间衰减监控服务
 负责监控组合的时间衰减风险，识别临近到期的持仓，计算 Theta 指标。
 """
 
+import logging
 import re
 from datetime import datetime
 from typing import Dict, List
 
-from src.common.log.logger import get_logger
 from ...entity.position import Position
 from ...value_object.pricing.greeks import GreeksResult
 from ...value_object.risk.risk import (
@@ -18,7 +18,7 @@ from ...value_object.risk.risk import (
     ExpiryGroup,
 )
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class TimeDecayMonitor:
