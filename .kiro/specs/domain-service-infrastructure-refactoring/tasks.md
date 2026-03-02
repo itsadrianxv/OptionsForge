@@ -212,7 +212,7 @@
     - 确保所有测试通过
     - _需求: 5.5, 7.1, 7.2_
 
-  - [-] 12.3 编写执行服务重构集成测试
+  - [x] 12.3 编写执行服务重构集成测试
     - 创建 `tests/strategy/domain/domain_service/test_execution_refactoring_integration.py`
     - 测试使用序列化器保存和恢复 SmartOrderExecutor 状态
     - 测试使用序列化器保存和恢复 AdvancedOrderScheduler 状态
@@ -220,14 +220,14 @@
     - 验证重构前后行为一致
     - _需求: 5.1, 5.2, 5.5, 7.3_
 
-  - [ ] 12.4 编写风险服务重构集成测试
+  - [-] 12.4 编写风险服务重构集成测试
     - 创建 `tests/strategy/domain/domain_service/test_risk_refactoring_integration.py`
     - 测试 ConcentrationMonitor 使用 ContractHelper 的行为
     - 测试 TimeDecayMonitor 使用 ContractHelper 和 DateCalculator 的行为
     - 验证重构前后计算结果一致
     - _需求: 5.3, 5.4, 5.5, 7.3_
 
-- [ ] 13. 检查点 - 确保所有测试通过
+- [-] 13. 检查点 - 确保所有测试通过
   - 运行完整的测试套件
   - 检查测试覆盖率是否满足要求
   - 如有测试失败，修复问题后重新运行
