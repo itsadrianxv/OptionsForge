@@ -2,6 +2,11 @@
 AdvancedOrderScheduler - 高级订单调度器
 
 统一管理冰山单、TWAP、VWAP 的拆单逻辑和子单生命周期。
+
+职责变更说明:
+- 序列化/反序列化职责已移至 AdvancedOrderSchedulerSerializer (基础设施层)
+- 配置加载职责已移至 DomainServiceConfigLoader (应用层)
+- 本服务专注于纯业务逻辑：拆单策略、子单管理、订单生命周期
 """
 import math
 import random
@@ -24,25 +29,24 @@ from src.strategy.domain.event.event_types import (
 
 
 class AdvancedOrderScheduler:
-    """高级订单调度器"""
+    """
+    高级订单调度器
+    
+    职责:
+    1. 冰山单拆单逻辑
+    2. TWAP/VWAP 时间切片
+    3. 子单生命周期管理
+    4. 订单状态跟踪
+    
+    注意:
+    - 序列化使用 AdvancedOrderSchedulerSerializer (infrastructure/persistence)
+    - 配置加载使用 DomainServiceConfigLoader (main/config)
+    """
 
     def __init__(self, config: Optional[AdvancedSchedulerConfig] = None):
         self.config = config or AdvancedSchedulerConfig()
         self._orders: Dict[str, AdvancedOrder] = {}
 
-    @classmethod
-    def from_yaml_config(cls, config_dict: dict) -> "AdvancedOrderScheduler":
-        """从 YAML 配置字典创建实例，缺失字段使用 AdvancedSchedulerConfig 默认值"""
-        defaults = AdvancedSchedulerConfig()
-        config = AdvancedSchedulerConfig(
-            default_batch_size=config_dict.get("default_batch_size", defaults.default_batch_size),
-            default_interval_seconds=config_dict.get("default_interval_seconds", defaults.default_interval_seconds),
-            default_num_slices=config_dict.get("default_num_slices", defaults.default_num_slices),
-            default_volume_randomize_ratio=config_dict.get("default_volume_randomize_ratio", defaults.default_volume_randomize_ratio),
-            default_price_offset_ticks=config_dict.get("default_price_offset_ticks", defaults.default_price_offset_ticks),
-            default_price_tick=config_dict.get("default_price_tick", defaults.default_price_tick),
-        )
-        return cls(config)
 
     def submit_iceberg(self, instruction: OrderInstruction, batch_size: int) -> AdvancedOrder:
         """提交冰山单，拆分为子单"""
@@ -508,15 +512,5 @@ class AdvancedOrderScheduler:
             },
         }
 
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any], config: Optional[AdvancedSchedulerConfig] = None) -> "AdvancedOrderScheduler":
-        """从字典恢复内部状态"""
-        if config is None:
-            cfg_data = data.get("config", {})
-            config = AdvancedSchedulerConfig(**cfg_data)
-        scheduler = cls(config)
-        for oid, order_data in data.get("orders", {}).items():
-            scheduler._orders[oid] = AdvancedOrder.from_dict(order_data)
-        return scheduler
 
 

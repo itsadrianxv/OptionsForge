@@ -159,7 +159,7 @@
     - _需求: 1.4, 5.1, 8.4_
 
 - [ ] 8. 重构 AdvancedOrderScheduler 领域服务
-  - [ ] 8.1 移除 AdvancedOrderScheduler 的序列化方法
+  - [x] 8.1 移除 AdvancedOrderScheduler 的序列化方法
     - 修改 `src/strategy/domain/domain_service/execution/advanced_order_scheduler.py`
     - 移除 `to_dict` 方法
     - 移除 `from_dict` 类方法
