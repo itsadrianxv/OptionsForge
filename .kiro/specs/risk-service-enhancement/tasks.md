@@ -137,7 +137,7 @@
     - 测试边界情况：单一持仓、均匀分布、空持仓
     - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7_
 
-  - [~] 6.3 编写 ConcentrationMonitor 属性测试
+  - [x] 6.3 编写 ConcentrationMonitor 属性测试
     - 创建 `tests/strategy/domain/domain_service/risk/test_concentration_properties.py`
     - **Property 13: 集中度占比计算**
     - **Validates: Requirements 4.1, 4.2, 4.3, 4.7**
