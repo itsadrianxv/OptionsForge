@@ -62,6 +62,7 @@ services:
       VNPY_DATABASE_USER: ${POSTGRES_USER:-postgres}
       VNPY_DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       VNPY_DATABASE_DATABASE: ${POSTGRES_DB:-trading}
+      LOGGING_CONFIG_PATH: ${LOGGING_CONFIG_PATH:-/app/config/logging/logging.toml}
       DATA_RECORDER_SETTING_TOML: /app/config/general/data_recorder_setting.toml
       DATA_RECORDER_SETTING_JSON: /app/data/runtime/data_recorder_setting.json
     volumes:

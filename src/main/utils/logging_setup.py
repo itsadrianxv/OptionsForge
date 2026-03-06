@@ -8,8 +8,26 @@ import logging.handlers
 from pathlib import Path
 from typing import Optional
 
+from src.main.config.logging_config_loader import get_logger_level_overrides
 
-def setup_logging(log_level: str, log_dir: str, log_name: str = "strategy.log") -> None:
+
+def _safe_level(level_name: str) -> int:
+    return getattr(logging, str(level_name).strip().upper(), logging.INFO)
+
+
+def _apply_logger_level_overrides(logger_level_overrides: dict[str, str]) -> None:
+    for logger_name, level_name in logger_level_overrides.items():
+        level = _safe_level(level_name)
+        target = logging.getLogger() if logger_name.lower() == "root" else logging.getLogger(logger_name)
+        target.setLevel(level)
+
+
+def setup_logging(
+    log_level: str,
+    log_dir: str,
+    log_name: str = "strategy.log",
+    logging_config_path: Optional[str] = None,
+) -> None:
     """
     配置日志系统
     
@@ -43,10 +61,15 @@ def setup_logging(log_level: str, log_dir: str, log_name: str = "strategy.log") 
     file_handler.suffix = "%Y%m%d"  # 设置后缀格式
     
     logging.basicConfig(
-        level=getattr(logging, log_level),
+        level=_safe_level(log_level),
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         handlers=[
             file_handler,
             logging.StreamHandler()
         ]
     )
+
+    # 覆盖指定 logger 级别（含 root，可用于按环境细分噪声）
+    overrides = get_logger_level_overrides(logging_config_path)
+    if overrides:
+        _apply_logger_level_overrides(overrides)

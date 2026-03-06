@@ -1,0 +1,22 @@
+# 日志级别配置
+#
+# 说明:
+# 1. `settings.strategy_fallback_level` 仅在策略 logger 独立运行（根 logger 未初始化）时生效
+# 2. `logger_levels` 可按 logger 名称覆盖级别（支持 `root`）
+# 3. 级别取值: DEBUG / INFO / WARNING / ERROR / CRITICAL / NOTSET
+
+[settings]
+strategy_fallback_level = "INFO"
+
+[logger_levels]
+# root = "INFO"
+
+# 策略实例 logger（默认 strategy_name 可能为 default_strategy）
+# 若希望看到领域事件/订阅重算/网关等调试细节，可改为 DEBUG
+default_strategy = "INFO"
+volatility_strategy_15m = "INFO"
+
+# 基础设施 logger 示例（按需打开调试）
+"src.strategy.infrastructure.monitoring.strategy_monitor" = "INFO"
+"src.strategy.infrastructure.persistence.state_repository" = "INFO"
+"src.main.process.child_process" = "INFO"
