@@ -1,0 +1,86 @@
+enabled = true
+enabled_modes = [
+  "products_dominant_with_options",
+  "positions_only",
+  "positions_with_wings",
+  "include_exclude_overlay"
+]
+
+refresh_sec = 15
+trigger_events = ["on_init", "on_position", "on_trade", "on_order", "on_rollover", "timer"]
+stale_ttl_sec = 300
+rollover_grace_sec = 180
+max_symbols = 500
+allow_overflow_for_must_keep = true
+keep_position_protection = true
+keep_active_order_protection = true
+auto_unsubscribe = true
+dry_run = false
+log_decision_detail = true
+
+[configured_contracts_only]
+vt_symbols = []
+
+[products_dominant_with_options]
+products = []
+option_scope = "atm_band"                # none | atm_band | same_expiry_chain
+band_n = 6
+expiry_policy = "same_as_dominant"      # same_as_dominant | any
+
+[positions_only]
+include_underlying = true
+include_pending_orders = true
+
+[positions_with_wings]
+wing_n = 2
+wing_side = "both"                       # both | otm | itm
+include_call_put = true
+
+[dominant_only]
+products = []
+
+[dominant_nearby_k]
+products = []
+nearby_k = 1
+
+[atm_band]
+underlyings_from = "dominant"            # dominant | positions | config
+band_n = 4
+include_call_put = true
+
+[position_same_expiry_chain]
+same_expiry_only = true
+include_call_put = true
+
+[liquidity_top_k_options]
+enabled = false
+k = 80
+metric = "score"                         # volume | oi | score
+min_volume = 0
+min_oi = 0
+
+[signal_driven_temporary]
+ttl_sec = 180
+max_temp_symbols = 50
+include_underlying = true
+option_band_n = 2
+
+[session_profile]
+default_modes = []
+
+[[session_profile.profiles]]
+name = "day_open"
+start = "08:40"
+end = "09:10"
+modes = ["dominant_nearby_k", "atm_band"]
+
+[[session_profile.profiles]]
+name = "regular"
+start = "09:10"
+end = "15:00"
+modes = ["products_dominant_with_options", "positions_only", "positions_with_wings"]
+
+[include_exclude_overlay]
+force_include = []
+force_exclude = []
+allow_exclude_must_keep = false
