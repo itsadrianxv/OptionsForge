@@ -157,6 +157,11 @@ class StrategyEntry(StrategyTemplate):
         self.greeks_calculator: Optional[GreeksCalculator] = None
         self.portfolio_risk_aggregator: Optional[PortfolioRiskAggregator] = None
         self.smart_order_executor: Optional[SmartOrderExecutor] = None
+        # --- 执行编排参考（默认注释，不启用）---
+        # self.advanced_order_scheduler: Optional[AdvancedOrderScheduler] = None
+        # self._child_to_vt_orderid: Dict[str, str] = {}
+        # self._vt_orderid_to_child: Dict[str, str] = {}
+        # self._child_to_parent_order: Dict[str, str] = {}
 
         # ── 基础设施网关 (在 on_init 中初始化) ──
         self.market_gateway: Optional[VnpyMarketDataGateway] = None
@@ -297,6 +302,16 @@ class StrategyEntry(StrategyTemplate):
         self.smart_order_executor = SmartOrderExecutor(order_config)
         self.logger.info(f"Greeks 风控已启用: position_limits={position_limits}, portfolio_limits={portfolio_limits}")
         self.logger.info(f"订单执行增强已启用: timeout={order_config.timeout_seconds}s, max_retries={order_config.max_retries}")
+
+        # --- 执行编排参考（默认注释，不启用）---
+        # from src.main.config.domain_service_config_loader import load_advanced_scheduler_config
+        # from src.strategy.domain.domain_service.execution.advanced_order_scheduler import AdvancedOrderScheduler
+        # self.advanced_order_scheduler = AdvancedOrderScheduler(
+        #     config=load_advanced_scheduler_config()
+        # )
+        # self._child_to_vt_orderid = {}
+        # self._vt_orderid_to_child = {}
+        # self._child_to_parent_order = {}
 
         # ______________________________  3. 创建领域聚合根  ______________________________
 
@@ -571,6 +586,10 @@ class StrategyEntry(StrategyTemplate):
             self.bar_pipeline.handle_bars(bars)
         else:
             self._process_bars(bars)
+        # --- 执行编排参考（默认注释，不启用）---
+        # if not self.warming_up:
+        #     self._dispatch_pending_advanced_children(current_time=datetime.now())
+        #     self._check_execution_timeouts_and_retry(current_time=datetime.now())
 
         # 周期性自动保存 (非回测模式)
         if self.auto_save_service and not self.warming_up:
@@ -599,6 +618,19 @@ class StrategyEntry(StrategyTemplate):
             "status": order.status.value if hasattr(order.status, "value") else str(order.status),
         }
         self.position_aggregate.update_from_order(order_data)
+        # --- 执行编排参考（默认注释，不启用）---
+        # if self.smart_order_executor:
+        #     status_text = order_data["status"].lower()
+        #     if "alltraded" in status_text or "filled" in status_text:
+        #         self.smart_order_executor.mark_order_filled(order.vt_orderid)
+        #     elif "cancelled" in status_text or "rejected" in status_text:
+        #         self.smart_order_executor.mark_order_cancelled(order.vt_orderid)
+        #
+        # child_id = self._vt_orderid_to_child.get(order.vt_orderid)
+        # if child_id and ("cancelled" in status_text or "rejected" in status_text):
+        #     self._vt_orderid_to_child.pop(order.vt_orderid, None)
+        #     self._child_to_vt_orderid.pop(child_id, None)
+        #     self._child_to_parent_order.pop(child_id, None)
         self._publish_domain_events()
         self._reconcile_subscriptions("on_order")
 
@@ -619,6 +651,19 @@ class StrategyEntry(StrategyTemplate):
             "datetime": trade.datetime,
         }
         self.position_aggregate.update_from_trade(trade_data)
+        # --- 执行编排参考（默认注释，不启用）---
+        # if self.smart_order_executor:
+        #     self.smart_order_executor.mark_order_filled(trade.vt_orderid)
+        #
+        # child_id = self._vt_orderid_to_child.get(trade.vt_orderid)
+        # if child_id and self.advanced_order_scheduler:
+        #     exec_events = self.advanced_order_scheduler.on_child_filled(child_id)
+        #     for evt in exec_events:
+        #         self.logger.info(f"执行领域事件: {evt.event_name} - {evt}")
+        #
+        #     self._vt_orderid_to_child.pop(trade.vt_orderid, None)
+        #     self._child_to_vt_orderid.pop(child_id, None)
+        #     self._child_to_parent_order.pop(child_id, None)
         self._publish_domain_events()
         self._reconcile_subscriptions("on_trade")
 
@@ -1005,6 +1050,140 @@ class StrategyEntry(StrategyTemplate):
             )
 
         return data
+
+    # ═══════════════════════════════════════════════════════════════════
+    #  执行服务联动参考（默认注释，不启用）
+    # ═══════════════════════════════════════════════════════════════════
+    #
+    # def _dispatch_pending_advanced_children(self, current_time: datetime) -> None:
+    #     """
+    #     参考实现：调度高级订单待发子单并下发到执行网关。
+    #
+    #     使用方式：
+    #     1) 在信号触发处通过 self.advanced_order_scheduler.submit_xxx(...) 创建父单；
+    #     2) 在 on_bars 定时调用本方法；
+    #     3) 维护 child_id <-> vt_orderid 映射，供 on_trade/on_order 回补状态。
+    #     """
+    #     if (
+    #         not self.advanced_order_scheduler
+    #         or not self.smart_order_executor
+    #         or not self.exec_gateway
+    #         or not self.market_gateway
+    #     ):
+    #         return
+    #
+    #     pending_children = self.advanced_order_scheduler.get_pending_children(current_time)
+    #     for child in pending_children:
+    #         parent_order = self.advanced_order_scheduler.get_order(child.parent_id)
+    #         if not parent_order:
+    #             continue
+    #
+    #         origin = parent_order.request.instruction
+    #         bid_price, ask_price, price_tick = self._extract_best_quote(origin.vt_symbol)
+    #
+    #         child_instruction = OrderInstruction(
+    #             vt_symbol=origin.vt_symbol,
+    #             direction=origin.direction,
+    #             offset=origin.offset,
+    #             volume=child.volume,
+    #             price=origin.price + child.price_offset,
+    #             signal=origin.signal,
+    #             order_type=origin.order_type,
+    #         )
+    #         adaptive_price = self.smart_order_executor.calculate_adaptive_price(
+    #             child_instruction, bid_price, ask_price, price_tick
+    #         )
+    #         final_price = self.smart_order_executor.round_price_to_tick(adaptive_price, price_tick)
+    #
+    #         final_instruction = OrderInstruction(
+    #             vt_symbol=origin.vt_symbol,
+    #             direction=origin.direction,
+    #             offset=origin.offset,
+    #             volume=child.volume,
+    #             price=final_price,
+    #             signal=origin.signal,
+    #             order_type=origin.order_type,
+    #         )
+    #         vt_orderids = self.exec_gateway.send_order(final_instruction)
+    #         if not vt_orderids:
+    #             self.logger.warning(f"子单下发失败: child_id={child.child_id}")
+    #             continue
+    #
+    #         child.is_submitted = True
+    #         for vt_orderid in vt_orderids:
+    #             self.smart_order_executor.register_order(vt_orderid, final_instruction)
+    #             self._child_to_vt_orderid[child.child_id] = vt_orderid
+    #             self._vt_orderid_to_child[vt_orderid] = child.child_id
+    #             self._child_to_parent_order[child.child_id] = child.parent_id
+    #
+    # def _check_execution_timeouts_and_retry(self, current_time: datetime) -> None:
+    #     """
+    #     参考实现：执行超时检查并按 SmartOrderExecutor 策略重试。
+    #     """
+    #     if not self.smart_order_executor or not self.exec_gateway:
+    #         return
+    #
+    #     cancel_ids, timeout_events = self.smart_order_executor.check_timeouts(current_time)
+    #     for evt in timeout_events:
+    #         self.logger.warning(f"执行超时事件: {evt}")
+    #
+    #     for vt_orderid in cancel_ids:
+    #         self.exec_gateway.cancel_order(vt_orderid)
+    #         managed_order = self.smart_order_executor.get_managed_order(vt_orderid)
+    #         if managed_order is None:
+    #             continue
+    #
+    #         retry_instruction, retry_events = self.smart_order_executor.prepare_retry(
+    #             managed_order, price_tick=self.smart_order_executor.config.price_tick
+    #         )
+    #         for evt in retry_events:
+    #             self.logger.warning(f"执行重试事件: {evt}")
+    #
+    #         if retry_instruction is None:
+    #             self.smart_order_executor.mark_order_cancelled(vt_orderid)
+    #             child_id = self._vt_orderid_to_child.pop(vt_orderid, None)
+    #             if child_id:
+    #                 self._child_to_vt_orderid.pop(child_id, None)
+    #                 self._child_to_parent_order.pop(child_id, None)
+    #             continue
+    #
+    #         retry_ids = self.exec_gateway.send_order(retry_instruction)
+    #         if not retry_ids:
+    #             self.logger.warning(f"重试下单失败: old_vt_orderid={vt_orderid}")
+    #             continue
+    #
+    #         child_id = self._vt_orderid_to_child.pop(vt_orderid, None)
+    #         for new_vt_orderid in retry_ids:
+    #             self.smart_order_executor.register_order(new_vt_orderid, retry_instruction)
+    #             if child_id:
+    #                 self._child_to_vt_orderid[child_id] = new_vt_orderid
+    #                 self._vt_orderid_to_child[new_vt_orderid] = child_id
+    #
+    # def _extract_best_quote(self, vt_symbol: str) -> tuple[float, float, float]:
+    #     """
+    #     参考实现：从行情网关取最优买卖价与价格跳动。
+    #     无有效行情时回退到 last_price 和默认 price_tick。
+    #     """
+    #     bid_price = 0.0
+    #     ask_price = 0.0
+    #     price_tick = 0.2
+    #
+    #     if not self.market_gateway:
+    #         return bid_price, ask_price, price_tick
+    #
+    #     tick = self.market_gateway.get_tick(vt_symbol)
+    #     if tick is None:
+    #         return bid_price, ask_price, price_tick
+    #
+    #     bid_price = float(getattr(tick, "bid_price_1", 0.0) or 0.0)
+    #     ask_price = float(getattr(tick, "ask_price_1", 0.0) or 0.0)
+    #     price_tick = float(getattr(tick, "pricetick", 0.0) or 0.0) or price_tick
+    #
+    #     if bid_price <= 0:
+    #         bid_price = float(getattr(tick, "last_price", 0.0) or 0.0)
+    #     if ask_price <= 0:
+    #         ask_price = float(getattr(tick, "last_price", 0.0) or 0.0)
+    #     return bid_price, ask_price, price_tick
 
     # ═══════════════════════════════════════════════════════════════════
     #  状态持久化
