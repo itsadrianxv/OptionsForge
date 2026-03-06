@@ -1,14 +1,15 @@
 """
-ExecutionCoordinator 属性测试
+执行服务直接编排属性测试
 
-Feature: execution-service-enhancement, Property 6: 协调器使用自适应价格计算
-Feature: execution-service-enhancement, Property 7: 协调器注册子单到超时管理
+Feature: execution-service-enhancement, Property 6: 上层使用自适应价格计算
+Feature: execution-service-enhancement, Property 7: 上层注册子单到超时管理
 
 **Validates: Requirements 4.2, 4.3**
 """
 
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime
+from typing import List, Tuple
 from unittest.mock import MagicMock
 
 import pytest
@@ -32,23 +33,20 @@ for _name in [
     if _name not in sys.modules:
         sys.modules[_name] = MagicMock()
 
-from src.strategy.domain.domain_service.execution.execution_coordinator import (  # noqa: E402
-    ExecutionCoordinator,
+from src.strategy.domain.domain_service.execution.advanced_order_scheduler import (  # noqa: E402
+    AdvancedOrderScheduler,
 )
 from src.strategy.domain.domain_service.execution.smart_order_executor import (  # noqa: E402
     SmartOrderExecutor,
 )
-from src.strategy.domain.domain_service.execution.advanced_order_scheduler import (  # noqa: E402
-    AdvancedOrderScheduler,
-)
+from src.strategy.domain.event.event_types import DomainEvent  # noqa: E402
 from src.strategy.domain.value_object.trading.order_execution import (  # noqa: E402
     OrderExecutionConfig,
-    AdvancedSchedulerConfig,
 )
 from src.strategy.domain.value_object.trading.order_instruction import (  # noqa: E402
-    OrderInstruction,
     Direction,
     Offset,
+    OrderInstruction,
     OrderType,
 )
 
@@ -88,18 +86,65 @@ def _order_instruction(draw):
     )
 
 
+def _process_pending_children(
+    scheduler: AdvancedOrderScheduler,
+    executor: SmartOrderExecutor,
+    current_time: datetime,
+    bid_price: float,
+    ask_price: float,
+    price_tick: float,
+) -> Tuple[List[OrderInstruction], List[DomainEvent]]:
+    """上层直接编排：处理待提交子单并计算自适应价格。"""
+    instructions: List[OrderInstruction] = []
+    events: List[DomainEvent] = []
+
+    pending_children = scheduler.get_pending_children(current_time)
+    for child in pending_children:
+        parent_order = scheduler.get_order(child.parent_id)
+        if parent_order is None:
+            continue
+        original = parent_order.request.instruction
+
+        child_instruction = OrderInstruction(
+            vt_symbol=original.vt_symbol,
+            direction=original.direction,
+            offset=original.offset,
+            volume=child.volume,
+            price=original.price,
+            signal=original.signal,
+            order_type=original.order_type,
+        )
+        expected_adaptive = executor.calculate_adaptive_price(
+            child_instruction, bid_price, ask_price, price_tick
+        )
+        rounded = executor.round_price_to_tick(expected_adaptive, price_tick)
+
+        instructions.append(
+            OrderInstruction(
+                vt_symbol=original.vt_symbol,
+                direction=original.direction,
+                offset=original.offset,
+                volume=child.volume,
+                price=rounded,
+                signal=original.signal,
+                order_type=original.order_type,
+            )
+        )
+
+    return instructions, events
+
+
 # ---------------------------------------------------------------------------
-# Property 6: 协调器使用自适应价格计算
-# Feature: execution-service-enhancement, Property 6: 协调器使用自适应价格计算
+# Property 6: 上层使用自适应价格计算
+# Feature: execution-service-enhancement, Property 6
 # **Validates: Requirements 4.2**
 # ---------------------------------------------------------------------------
 
 
-class TestProperty6CoordinatorUsesAdaptivePricing:
+class TestProperty6ServiceOrchestrationUsesAdaptivePricing:
     """
-    对于任意待提交子单和有效的 bid/ask 价格，
-    ExecutionCoordinator.process_pending_children 返回的指令价格
-    应等于 SmartOrderExecutor.calculate_adaptive_price 对该子单计算的结果
+    对于任意待提交子单和有效 bid/ask，
+    上层直接编排产生的指令价格应等于 SmartOrderExecutor 的自适应价格计算结果
     （经 round_price_to_tick 对齐后）。
     """
 
@@ -112,7 +157,7 @@ class TestProperty6CoordinatorUsesAdaptivePricing:
         slippage_ticks=_slippage_ticks,
     )
     @settings(max_examples=100)
-    def test_coordinator_uses_adaptive_pricing(
+    def test_service_orchestration_uses_adaptive_pricing(
         self,
         instruction: OrderInstruction,
         batch_size: int,
@@ -121,32 +166,27 @@ class TestProperty6CoordinatorUsesAdaptivePricing:
         price_tick: float,
         slippage_ticks: int,
     ):
-        # Setup executor with specific slippage
         config = OrderExecutionConfig(slippage_ticks=slippage_ticks, price_tick=price_tick)
         executor = SmartOrderExecutor(config)
         scheduler = AdvancedOrderScheduler()
-        coordinator = ExecutionCoordinator(executor=executor, scheduler=scheduler)
 
-        # Submit an iceberg order to create child orders
-        order = scheduler.submit_iceberg(instruction, batch_size)
-
-        # Use a time that makes all iceberg children eligible (first child is always pending)
+        scheduler.submit_iceberg(instruction, batch_size)
         current_time = datetime.now()
-        instructions, events = coordinator.process_pending_children(
+        instructions, events = _process_pending_children(
+            scheduler=scheduler,
+            executor=executor,
             current_time=current_time,
             bid_price=bid_price,
             ask_price=ask_price,
             price_tick=price_tick,
         )
 
-        # Get the same pending children the coordinator would have seen
         pending_children = scheduler.get_pending_children(current_time)
 
-        # Each returned instruction's price should match the adaptive price calculation
-        for i, final_instr in enumerate(instructions):
-            # Build the child instruction as the coordinator does internally
+        for i, final_instruction in enumerate(instructions):
             child = pending_children[i]
             parent_order = scheduler.get_order(child.parent_id)
+            assert parent_order is not None
             original = parent_order.request.instruction
 
             child_instruction = OrderInstruction(
@@ -158,57 +198,47 @@ class TestProperty6CoordinatorUsesAdaptivePricing:
                 signal=original.signal,
                 order_type=original.order_type,
             )
-
             expected_adaptive = executor.calculate_adaptive_price(
                 child_instruction, bid_price, ask_price, price_tick
             )
             expected_rounded = executor.round_price_to_tick(expected_adaptive, price_tick)
 
-            assert final_instr.price == pytest.approx(expected_rounded, abs=1e-9), (
-                f"Instruction price {final_instr.price} != expected {expected_rounded} "
+            assert final_instruction.price == pytest.approx(expected_rounded, abs=1e-9), (
+                f"Instruction price {final_instruction.price} != expected {expected_rounded} "
                 f"(adaptive={expected_adaptive}, tick={price_tick})"
             )
+        assert events == []
 
 
 # ---------------------------------------------------------------------------
-# Property 7: 协调器注册子单到超时管理
-# Feature: execution-service-enhancement, Property 7: 协调器注册子单到超时管理
+# Property 7: 上层注册子单到超时管理
+# Feature: execution-service-enhancement, Property 7
 # **Validates: Requirements 4.3**
 # ---------------------------------------------------------------------------
 
 
-class TestProperty7CoordinatorRegistersChildrenToTimeout:
+class TestProperty7ServiceOrchestrationRegistersChildrenToTimeout:
     """
-    对于任意通过 ExecutionCoordinator.on_child_order_submitted 注册的子单，
-    该子单对应的 vt_orderid 应出现在 SmartOrderExecutor 的 _orders 字典中。
+    对于任意由上层直接调用 register_order 注册的子单，
+    对应 vt_orderid 应出现在 SmartOrderExecutor 的托管订单集合中。
     """
 
     @given(
-        child_id=st.text(min_size=1, max_size=30),
         vt_orderid=st.text(min_size=1, max_size=30),
         instruction=_order_instruction(),
     )
     @settings(max_examples=100)
-    def test_coordinator_registers_children_to_timeout(
+    def test_service_orchestration_registers_children_to_timeout(
         self,
-        child_id: str,
         vt_orderid: str,
         instruction: OrderInstruction,
     ):
-        config = OrderExecutionConfig()
-        executor = SmartOrderExecutor(config)
-        scheduler = AdvancedOrderScheduler()
-        coordinator = ExecutionCoordinator(executor=executor, scheduler=scheduler)
+        executor = SmartOrderExecutor(OrderExecutionConfig())
+        executor.register_order(vt_orderid, instruction)
 
-        # Register a child order via the coordinator
-        coordinator.on_child_order_submitted(child_id, vt_orderid, instruction)
-
-        # The vt_orderid should now be tracked in executor._orders
-        assert vt_orderid in executor._orders, (
-            f"vt_orderid '{vt_orderid}' not found in executor._orders after registration"
+        managed = executor.get_managed_order(vt_orderid)
+        assert managed is not None, (
+            f"vt_orderid '{vt_orderid}' not found after register_order"
         )
-
-        # Verify the registered order has the correct instruction
-        managed = executor._orders[vt_orderid]
         assert managed.instruction == instruction
         assert managed.is_active is True

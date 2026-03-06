@@ -79,6 +79,10 @@ class SmartOrderExecutor:
         self._orders[vt_orderid] = order
         return order
 
+    def get_managed_order(self, vt_orderid: str) -> Optional[ManagedOrder]:
+        """按订单 ID 获取托管订单。"""
+        return self._orders.get(vt_orderid)
+
     def check_timeouts(
         self, current_time: datetime
     ) -> Tuple[List[str], List[DomainEvent]]:

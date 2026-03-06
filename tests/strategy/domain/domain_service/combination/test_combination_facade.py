@@ -1,18 +1,16 @@
 """
-CombinationFacade 单元测试
+组合领域服务编排单元测试
 
-验证 Facade 子服务异常传播：当子服务抛出异常时 evaluate 不静默吞没。
+验证上层直接编排调用组合领域服务时，子服务异常不被吞没并按调用顺序传播。
 
 _Requirements: 6.4_
 """
 from datetime import datetime
+from typing import Dict, Optional
 from unittest.mock import MagicMock
 
 import pytest
 
-from src.strategy.domain.domain_service.combination.combination_facade import (
-    CombinationFacade,
-)
 from src.strategy.domain.domain_service.combination.combination_greeks_calculator import (
     CombinationGreeksCalculator,
 )
@@ -24,21 +22,39 @@ from src.strategy.domain.domain_service.combination.combination_risk_checker imp
 )
 from src.strategy.domain.entity.combination import Combination
 from src.strategy.domain.value_object.combination import (
+    CombinationEvaluation,
     CombinationGreeks,
     CombinationPnL,
-    CombinationRiskConfig,
     CombinationStatus,
     CombinationType,
     Leg,
 )
 from src.strategy.domain.value_object.pricing.greeks import GreeksResult
-from src.strategy.domain.value_object.risk.risk import RiskCheckResult
+
+
+def _evaluate_combination(
+    greeks_calculator: CombinationGreeksCalculator,
+    pnl_calculator: CombinationPnLCalculator,
+    risk_checker: CombinationRiskChecker,
+    combination: Combination,
+    greeks_map: Dict[str, GreeksResult],
+    current_prices: Dict[str, float],
+    multiplier: float,
+    realized_pnl_map: Optional[Dict[str, float]] = None,
+) -> CombinationEvaluation:
+    """上层直接编排组合评估流程。"""
+    greeks = greeks_calculator.calculate(combination, greeks_map, multiplier)
+    pnl = pnl_calculator.calculate(
+        combination, current_prices, multiplier, realized_pnl_map
+    )
+    risk_result = risk_checker.check(greeks)
+    return CombinationEvaluation(greeks=greeks, pnl=pnl, risk_result=risk_result)
 
 
 def _make_combination() -> Combination:
     """构建一个简单的测试 Combination。"""
     return Combination(
-        combination_id="test-facade",
+        combination_id="test-service-orchestration",
         combination_type=CombinationType.CUSTOM,
         underlying_vt_symbol="TEST.UND",
         legs=[
@@ -57,26 +73,22 @@ def _make_combination() -> Combination:
     )
 
 
-class TestFacadeExceptionPropagation:
-    """验证 Facade 子服务异常传播 - Requirements 6.4"""
-
-    def _make_facade(self, greeks_calc=None, pnl_calc=None, risk_checker=None):
-        """构建 Facade，允许注入 mock 子服务。"""
-        greeks_calc = greeks_calc or MagicMock(spec=CombinationGreeksCalculator)
-        pnl_calc = pnl_calc or MagicMock(spec=CombinationPnLCalculator)
-        risk_checker = risk_checker or MagicMock(spec=CombinationRiskChecker)
-        return CombinationFacade(greeks_calc, pnl_calc, risk_checker)
+class TestServiceOrchestrationExceptionPropagation:
+    """验证上层直接编排时异常传播。"""
 
     def test_greeks_calculator_exception_propagates(self):
-        """当 GreeksCalculator 抛出异常时，Facade 应传播该异常。"""
         greeks_calc = MagicMock(spec=CombinationGreeksCalculator)
         greeks_calc.calculate.side_effect = ValueError("Greeks 计算失败")
-
-        facade = self._make_facade(greeks_calc=greeks_calc)
+        pnl_calc, risk_checker = MagicMock(spec=CombinationPnLCalculator), MagicMock(
+            spec=CombinationRiskChecker
+        )
         combination = _make_combination()
 
         with pytest.raises(ValueError, match="Greeks 计算失败"):
-            facade.evaluate(
+            _evaluate_combination(
+                greeks_calc,
+                pnl_calc,
+                risk_checker,
                 combination,
                 greeks_map={"OPT1.TEST": GreeksResult()},
                 current_prices={"OPT1.TEST": 110.0},
@@ -84,18 +96,20 @@ class TestFacadeExceptionPropagation:
             )
 
     def test_pnl_calculator_exception_propagates(self):
-        """当 PnLCalculator 抛出异常时，Facade 应传播该异常。"""
         greeks_calc = MagicMock(spec=CombinationGreeksCalculator)
         greeks_calc.calculate.return_value = CombinationGreeks()
 
         pnl_calc = MagicMock(spec=CombinationPnLCalculator)
         pnl_calc.calculate.side_effect = RuntimeError("PnL 计算失败")
+        risk_checker = MagicMock(spec=CombinationRiskChecker)
 
-        facade = self._make_facade(greeks_calc=greeks_calc, pnl_calc=pnl_calc)
         combination = _make_combination()
 
         with pytest.raises(RuntimeError, match="PnL 计算失败"):
-            facade.evaluate(
+            _evaluate_combination(
+                greeks_calc,
+                pnl_calc,
+                risk_checker,
                 combination,
                 greeks_map={"OPT1.TEST": GreeksResult()},
                 current_prices={"OPT1.TEST": 110.0},
@@ -103,7 +117,6 @@ class TestFacadeExceptionPropagation:
             )
 
     def test_risk_checker_exception_propagates(self):
-        """当 RiskChecker 抛出异常时，Facade 应传播该异常。"""
         greeks_calc = MagicMock(spec=CombinationGreeksCalculator)
         greeks_calc.calculate.return_value = CombinationGreeks()
 
@@ -113,13 +126,13 @@ class TestFacadeExceptionPropagation:
         risk_checker = MagicMock(spec=CombinationRiskChecker)
         risk_checker.check.side_effect = TypeError("风控检查失败")
 
-        facade = self._make_facade(
-            greeks_calc=greeks_calc, pnl_calc=pnl_calc, risk_checker=risk_checker
-        )
         combination = _make_combination()
 
         with pytest.raises(TypeError, match="风控检查失败"):
-            facade.evaluate(
+            _evaluate_combination(
+                greeks_calc,
+                pnl_calc,
+                risk_checker,
                 combination,
                 greeks_map={"OPT1.TEST": GreeksResult()},
                 current_prices={"OPT1.TEST": 110.0},
@@ -127,20 +140,18 @@ class TestFacadeExceptionPropagation:
             )
 
     def test_greeks_exception_prevents_pnl_and_risk(self):
-        """当 GreeksCalculator 异常时，PnL 和 RiskChecker 不应被调用。"""
         greeks_calc = MagicMock(spec=CombinationGreeksCalculator)
         greeks_calc.calculate.side_effect = ValueError("Greeks 异常")
 
         pnl_calc = MagicMock(spec=CombinationPnLCalculator)
         risk_checker = MagicMock(spec=CombinationRiskChecker)
-
-        facade = self._make_facade(
-            greeks_calc=greeks_calc, pnl_calc=pnl_calc, risk_checker=risk_checker
-        )
         combination = _make_combination()
 
         with pytest.raises(ValueError):
-            facade.evaluate(
+            _evaluate_combination(
+                greeks_calc,
+                pnl_calc,
+                risk_checker,
                 combination,
                 greeks_map={},
                 current_prices={},
@@ -151,7 +162,6 @@ class TestFacadeExceptionPropagation:
         risk_checker.check.assert_not_called()
 
     def test_pnl_exception_prevents_risk_check(self):
-        """当 PnLCalculator 异常时，RiskChecker 不应被调用。"""
         greeks_calc = MagicMock(spec=CombinationGreeksCalculator)
         greeks_calc.calculate.return_value = CombinationGreeks()
 
@@ -159,14 +169,13 @@ class TestFacadeExceptionPropagation:
         pnl_calc.calculate.side_effect = RuntimeError("PnL 异常")
 
         risk_checker = MagicMock(spec=CombinationRiskChecker)
-
-        facade = self._make_facade(
-            greeks_calc=greeks_calc, pnl_calc=pnl_calc, risk_checker=risk_checker
-        )
         combination = _make_combination()
 
         with pytest.raises(RuntimeError):
-            facade.evaluate(
+            _evaluate_combination(
+                greeks_calc,
+                pnl_calc,
+                risk_checker,
                 combination,
                 greeks_map={},
                 current_prices={},
