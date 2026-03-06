@@ -62,3 +62,11 @@ flowchart TD
 ```bash
 python -m src.main.main --mode standalone --config config/strategy_config.toml
 ```
+
+## 4. 运行测试
+
+`pytest` 配置已放到 `config/pytest.ini`，运行测试请显式指定配置文件：
+
+```bash
+pytest -c config/pytest.ini
+```
