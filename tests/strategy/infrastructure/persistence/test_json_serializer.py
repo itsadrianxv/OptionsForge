@@ -20,7 +20,6 @@ from src.strategy.infrastructure.persistence.json_serializer import (
     CURRENT_SCHEMA_VERSION,
     JsonSerializer,
 )
-from src.strategy.infrastructure.persistence.migration_chain import MigrationChain
 
 
 # ---------------------------------------------------------------------------
@@ -117,7 +116,7 @@ def _aggregate_snapshot_strategy():
 # ---------------------------------------------------------------------------
 
 def _make_serializer() -> JsonSerializer:
-    return JsonSerializer(MigrationChain())
+    return JsonSerializer()
 
 
 def _deep_equal(a: Any, b: Any) -> bool:
@@ -290,28 +289,6 @@ class TestJsonSerializerUnit:
         import json
         parsed = json.loads(json_str)
         assert parsed["schema_version"] == CURRENT_SCHEMA_VERSION
-
-    def test_schema_version_migration(self):
-        """deserialize() should apply migration when version < current."""
-        chain = MigrationChain()
-        # Suppose we bump to version 2 in the future
-        import src.strategy.infrastructure.persistence.json_serializer as mod
-        original_version = mod.CURRENT_SCHEMA_VERSION
-
-        try:
-            mod.CURRENT_SCHEMA_VERSION = 2
-            chain.register(1, lambda d: {**d, "migrated": True})
-            serializer = JsonSerializer(chain)
-
-            # Manually craft a v1 JSON string
-            import json
-            v1_json = json.dumps({"schema_version": 1, "data": "test"})
-            restored = serializer.deserialize(v1_json)
-
-            assert restored["schema_version"] == 2
-            assert restored["migrated"] is True
-        finally:
-            mod.CURRENT_SCHEMA_VERSION = original_version
 
     def test_complex_nested_structure(self):
         """Complex nested structure with mixed types should round-trip."""

@@ -26,7 +26,6 @@ sys.modules["vnpy.trader.setting"].SETTINGS = {}
 
 from src.main.bootstrap.database_factory import DatabaseFactory
 from src.strategy.infrastructure.persistence.json_serializer import JsonSerializer
-from src.strategy.infrastructure.persistence.migration_chain import MigrationChain
 from src.strategy.infrastructure.persistence.state_repository import StateRepository
 from src.strategy.infrastructure.persistence.model.strategy_state_po import (
     StrategyStatePO as StrategyStateModel,
@@ -132,7 +131,7 @@ def _setup_test_database():
 
 def _make_repository(db) -> StateRepository:
     """Create a StateRepository instance for testing."""
-    serializer = JsonSerializer(MigrationChain())
+    serializer = JsonSerializer()
     
     # Create a mock database factory that returns our test database
     database_factory = MagicMock(spec=DatabaseFactory)

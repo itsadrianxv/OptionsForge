@@ -75,7 +75,6 @@ _leaf_mods = [
     "src.strategy.infrastructure.monitoring.strategy_monitor",
     "src.strategy.infrastructure.persistence.state_repository",
     "src.strategy.infrastructure.persistence.json_serializer",
-    "src.strategy.infrastructure.persistence.migration_chain",
     "src.strategy.infrastructure.persistence.auto_save_service",
     "src.strategy.infrastructure.persistence.exceptions",
     "src.strategy.infrastructure.persistence.history_data_repository",

@@ -25,7 +25,6 @@ for _mod_name in [
 sys.modules["vnpy.trader.setting"].SETTINGS = {}
 
 from src.strategy.infrastructure.persistence.json_serializer import JsonSerializer
-from src.strategy.infrastructure.persistence.migration_chain import MigrationChain
 from src.strategy.infrastructure.persistence.state_repository import (
     COMPRESSION_PREFIX,
     DEFAULT_COMPRESSION_THRESHOLD,
@@ -103,7 +102,7 @@ def _make_repository() -> StateRepository:
     Note: We only test the compression/decompression methods, not the full
     save/load cycle which requires database setup.
     """
-    serializer = JsonSerializer(MigrationChain())
+    serializer = JsonSerializer()
     # Use a mock database factory since we're only testing compression methods
     database_factory = None  # type: ignore
     logger = None

@@ -20,7 +20,6 @@ from src.strategy.infrastructure.persistence.json_serializer import (
     CURRENT_SCHEMA_VERSION,
     JsonSerializer,
 )
-from src.strategy.infrastructure.persistence.migration_chain import MigrationChain
 
 
 # ---------------------------------------------------------------------------
@@ -130,8 +129,8 @@ def _snapshot_with_all_types_strategy():
 # ---------------------------------------------------------------------------
 
 def _make_serializer() -> JsonSerializer:
-    """Create a JsonSerializer instance with empty migration chain."""
-    return JsonSerializer(MigrationChain())
+    """Create a JsonSerializer instance."""
+    return JsonSerializer()
 
 
 def _deep_equal(a: Any, b: Any) -> bool:

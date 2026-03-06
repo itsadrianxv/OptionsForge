@@ -20,8 +20,6 @@ from typing import Any, Dict
 
 import pandas as pd
 
-from src.strategy.infrastructure.persistence.migration_chain import MigrationChain
-
 CURRENT_SCHEMA_VERSION = 1
 
 
@@ -137,9 +135,6 @@ def _resolve_dataclass(obj: Dict[str, Any]) -> Any:
 class JsonSerializer:
     """JSON 序列化器，支持 DataFrame 和 datetime 等特殊类型。"""
 
-    def __init__(self, migration_chain: MigrationChain) -> None:
-        self._migration_chain = migration_chain
-
     def serialize(self, data: Dict[str, Any]) -> str:
         """序列化为 JSON 字符串。
 
@@ -156,18 +151,7 @@ class JsonSerializer:
     def deserialize(self, json_str: str) -> Dict[str, Any]:
         """从 JSON 字符串反序列化。
 
-        - 检查 schema_version，必要时执行迁移
         - records 格式 → DataFrame
         - ISO 8601 字符串 → datetime
         """
-        data = json.loads(json_str, object_hook=_object_hook)
-
-        # 版本迁移
-        version = data.get("schema_version", 1)
-        if version < CURRENT_SCHEMA_VERSION:
-            data = self._migration_chain.migrate(
-                data, version, CURRENT_SCHEMA_VERSION
-            )
-            data["schema_version"] = CURRENT_SCHEMA_VERSION
-
-        return data
+        return json.loads(json_str, object_hook=_object_hook)

@@ -33,7 +33,7 @@ from .domain.domain_service.signal.signal_service import SignalService
 # 使用前请根据策略需求实现 calculate_bar() / check_open_signal() / check_close_signal()
 from .domain.domain_service.risk.position_sizing_service import PositionSizingService
 from .domain.domain_service.selection.option_selector_service import OptionSelectorService
-from .domain.domain_service.selection.future_selection_service import BaseFutureSelector
+from .domain.domain_service.selection.future_selection_service import FutureSelectionService
 from .domain.domain_service.pricing import GreeksCalculator
 from .domain.domain_service.risk.portfolio_risk_aggregator import PortfolioRiskAggregator
 from .domain.domain_service.execution.smart_order_executor import SmartOrderExecutor
@@ -59,12 +59,12 @@ from .infrastructure.logging.logging_utils import setup_strategy_logger
 from .infrastructure.monitoring.strategy_monitor import StrategyMonitor
 from .infrastructure.persistence.state_repository import StateRepository, ArchiveNotFound
 from .infrastructure.persistence.json_serializer import JsonSerializer
-from .infrastructure.persistence.migration_chain import MigrationChain
 from .infrastructure.persistence.auto_save_service import AutoSaveService
 from .infrastructure.persistence.exceptions import CorruptionError
 from .infrastructure.persistence.history_data_repository import HistoryDataRepository
 from src.main.bootstrap.database_factory import DatabaseFactory
 from .infrastructure.parsing.contract_helper import ContractHelper
+from .domain.value_object.selection.selection import MarketData as SelectionMarketData
 
 
 class StrategyEntry(StrategyTemplate):
@@ -146,7 +146,7 @@ class StrategyEntry(StrategyTemplate):
         self.indicator_service: Optional[IndicatorService] = None
         self.signal_service: Optional[SignalService] = None
         self.position_sizing_service: Optional[PositionSizingService] = None
-        self.future_selection_service: Optional[BaseFutureSelector] = None
+        self.future_selection_service: Optional[FutureSelectionService] = None
         self.option_selector_service: Optional[OptionSelectorService] = None
         self.greeks_calculator: Optional[GreeksCalculator] = None
         self.portfolio_risk_aggregator: Optional[PortfolioRiskAggregator] = None
@@ -232,7 +232,7 @@ class StrategyEntry(StrategyTemplate):
         self.position_sizing_service = PositionSizingService(
             config=load_position_sizing_config(overrides=ps_overrides)
         )
-        self.future_selection_service = BaseFutureSelector(
+        self.future_selection_service = FutureSelectionService(
             config=load_future_selector_config()
         )
         self.option_selector_service = OptionSelectorService(
@@ -298,7 +298,7 @@ class StrategyEntry(StrategyTemplate):
         )
         
         # 创建 JsonSerializer 实例，供 StateRepository 和 AutoSaveService 共享
-        self.json_serializer = JsonSerializer(MigrationChain())
+        self.json_serializer = JsonSerializer()
         
         self.state_repository = StateRepository(
             serializer=self.json_serializer,
@@ -371,9 +371,6 @@ class StrategyEntry(StrategyTemplate):
                         self.position_aggregate = PositionAggregate.from_snapshot(result["position_aggregate"])
                     if "combination_aggregate" in result:
                         self.combination_aggregate = CombinationAggregate.from_snapshot(result["combination_aggregate"])
-                    else:
-                        # 兼容旧版本快照（无 combination_aggregate 字段）
-                        self.combination_aggregate = CombinationAggregate()
                     if "current_dt" in result:
                         self.current_dt = result["current_dt"]
                     self.logger.info(f"策略状态已恢复: {self.strategy_name}")
@@ -701,8 +698,9 @@ class StrategyEntry(StrategyTemplate):
                     self.logger.warning(f"品种 {product} 未找到可用合约")
                     continue
 
+                market_data = self._build_future_market_data(product_contracts)
                 dominant = self.future_selection_service.select_dominant_contract(
-                    product_contracts, date.today(), log_func=self.logger.info
+                    product_contracts, date.today(), market_data=market_data, log_func=self.logger.info
                 )
                 if dominant:
                     vt_symbol = dominant.vt_symbol
@@ -712,6 +710,42 @@ class StrategyEntry(StrategyTemplate):
                     self.logger.info(f"品种 {product} 主力合约: {vt_symbol}")
             except Exception as e:
                 self.logger.error(f"品种 {product} 主力合约初始化失败: {e}")
+
+    def _build_future_market_data(self, contracts: List[Any]) -> Dict[str, SelectionMarketData]:
+        """
+        从行情网关构建期货主力选择所需的 market_data。
+
+        仅纳入能获取到有效 volume/open_interest 的合约。
+        """
+        if not self.market_gateway:
+            return {}
+
+        data: Dict[str, SelectionMarketData] = {}
+        for contract in contracts:
+            vt_symbol = getattr(contract, "vt_symbol", "")
+            if not vt_symbol:
+                continue
+
+            tick = self.market_gateway.get_tick(vt_symbol)
+            if tick is None:
+                continue
+
+            try:
+                volume = float(getattr(tick, "volume", 0) or 0)
+                open_interest = float(getattr(tick, "open_interest", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+
+            if volume != volume or open_interest != open_interest:
+                continue
+
+            data[vt_symbol] = SelectionMarketData(
+                vt_symbol=vt_symbol,
+                volume=int(volume),
+                open_interest=open_interest,
+            )
+
+        return data
 
     def _check_universe_rollover(self, current_dt: datetime) -> None:
         """
@@ -736,8 +770,9 @@ class StrategyEntry(StrategyTemplate):
                 if not product_contracts:
                     continue
 
+                market_data = self._build_future_market_data(product_contracts)
                 dominant = self.future_selection_service.select_dominant_contract(
-                    product_contracts, current_dt.date(), log_func=self.logger.info
+                    product_contracts, current_dt.date(), market_data=market_data, log_func=self.logger.info
                 )
                 if dominant and dominant.vt_symbol != current_vt:
                     new_vt = dominant.vt_symbol

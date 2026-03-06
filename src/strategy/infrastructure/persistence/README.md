@@ -6,7 +6,6 @@
 - 快照序列化与反序列化
 - 状态保存、加载、完整性校验、压缩与清理
 - 自动保存调度与后台写入
-- schema 迁移链
 
 2. 策略重启信号恢复所需的历史回放
 - 从数据库加载历史 Bar 并通过回调回放
@@ -17,7 +16,6 @@
 - `state_repository.py`
 - `auto_save_service.py`
 - `json_serializer.py`
-- `migration_chain.py`
 - `history_data_repository.py`
 - `exceptions.py`
 - `model/strategy_state_po.py`

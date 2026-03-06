@@ -26,7 +26,6 @@ sys.modules["vnpy.trader.setting"].SETTINGS = {}
 
 from src.strategy.infrastructure.persistence.auto_save_service import AutoSaveService
 from src.strategy.infrastructure.persistence.json_serializer import JsonSerializer
-from src.strategy.infrastructure.persistence.migration_chain import MigrationChain
 from src.strategy.infrastructure.persistence.state_repository import StateRepository
 
 
@@ -112,7 +111,7 @@ def _make_auto_save_service(
     Returns:
         AutoSaveService instance configured for testing
     """
-    serializer = JsonSerializer(MigrationChain())
+    serializer = JsonSerializer()
     
     return AutoSaveService(
         state_repository=mock_repository,

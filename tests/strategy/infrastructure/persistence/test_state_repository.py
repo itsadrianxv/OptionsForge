@@ -36,7 +36,6 @@ from src.strategy.infrastructure.persistence.json_serializer import (
     CURRENT_SCHEMA_VERSION,
     JsonSerializer,
 )
-from src.strategy.infrastructure.persistence.migration_chain import MigrationChain
 from src.strategy.infrastructure.persistence.state_repository import (
     ArchiveNotFound,
     StateRepository,
@@ -63,7 +62,7 @@ def _make_repo(db: SqliteDatabase) -> StateRepository:
     """Create a StateRepository with a mocked DatabaseFactory returning the test db."""
     factory = MagicMock()
     factory.get_peewee_db.return_value = db
-    serializer = JsonSerializer(MigrationChain())
+    serializer = JsonSerializer()
     return StateRepository(serializer=serializer, database_factory=factory)
 
 
@@ -292,7 +291,7 @@ class TestStateRepositoryUnit:
         repo = _make_repo(db)
 
         strategy = "test_strategy"
-        serializer = JsonSerializer(MigrationChain())
+        serializer = JsonSerializer()
 
         # Insert old records (10 days ago)
         StrategyStateModel._meta.database = db
@@ -330,7 +329,7 @@ class TestStateRepositoryUnit:
         db = _setup_test_db()
         repo = _make_repo(db)
 
-        serializer = JsonSerializer(MigrationChain())
+        serializer = JsonSerializer()
         StrategyStateModel._meta.database = db
 
         old_time = datetime.now() - timedelta(days=10)
@@ -391,7 +390,7 @@ class TestStateRepositoryUnit:
         db = _setup_test_db()
         repo = _make_repo(db)
 
-        serializer = JsonSerializer(MigrationChain())
+        serializer = JsonSerializer()
         StrategyStateModel._meta.database = db
 
         strategy = "test_strategy"
