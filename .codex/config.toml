@@ -1,0 +1,2 @@
+# 将默认审批模式设为全自动
+approval_mode = "full-auto"
