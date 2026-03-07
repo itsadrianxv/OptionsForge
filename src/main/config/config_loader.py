@@ -143,49 +143,158 @@ class ConfigLoader:
         return True
 
     @staticmethod
+    def _normalize_timeframe_name(raw: Any) -> str:
+        """Normalize timeframe name from override config."""
+        if raw is None:
+            return ""
+
+        name = str(raw).strip()
+        if not name:
+            return ""
+
+        return name.replace(" ", "_")
+
+    @staticmethod
+    def _append_timeframe_suffix(strategy_name: str, timeframe_name: str) -> str:
+        """Append timeframe suffix only when needed."""
+        base_name = str(strategy_name or "default_strategy").strip() or "default_strategy"
+        if not timeframe_name:
+            return base_name
+
+        suffix = f"_{timeframe_name}"
+        if base_name.endswith(suffix):
+            return base_name
+        return f"{base_name}{suffix}"
+
+    @staticmethod
+    def extract_timeframe_name(override_config: Dict[str, Any], fallback: str = "") -> str:
+        """Extract timeframe name from override config."""
+        if not isinstance(override_config, dict):
+            return fallback
+
+        timeframe_cfg = override_config.get("timeframe")
+        if isinstance(timeframe_cfg, dict):
+            timeframe_name = ConfigLoader._normalize_timeframe_name(timeframe_cfg.get("name"))
+            if timeframe_name:
+                return timeframe_name
+
+        return fallback
+
+    @staticmethod
     def merge_strategy_config(base_config: Dict[str, Any], override_config: Dict[str, Any]) -> Dict[str, Any]:
+        """Merge override config into strategy config.
+
+        New format (recommended):
+            [timeframe]
+            name = "15m"
+            bar_window = 15
+            bar_interval = "MINUTE"
+
+        Legacy format is still accepted:
+            [[strategies]]
+            strategy_name = "..."
+            [strategies.setting]
+            ...
         """
-        合并策略配置
-        
-        将 override_config 中的策略配置合并到 base_config 中。
-        假设两个配置都包含 'strategies' 列表，且列表长度为 1。
-        
-        Args:
-            base_config: 基础配置
-            override_config: 覆盖配置 (如时间窗口配置)
-            
-        Returns:
-            合并后的新配置字典
-        """
-        if not override_config or "strategies" not in override_config:
+        if not isinstance(base_config, dict):
+            return {}
+
+        if not override_config:
             return base_config
-            
-        merged = base_config.copy()
-        
-        # 确保基础配置也有 strategies
-        if "strategies" not in merged:
-            merged["strategies"] = override_config["strategies"]
+
+        if not isinstance(override_config, dict):
+            return base_config
+
+        merged: Dict[str, Any] = {
+            **base_config,
+            "strategies": [
+                {
+                    **(strategy or {}),
+                    "setting": dict((strategy or {}).get("setting") or {}),
+                }
+                for strategy in (base_config.get("strategies") or [])
+                if isinstance(strategy, dict)
+            ],
+        }
+
+        runtime_override = override_config.get("runtime")
+        if isinstance(runtime_override, dict):
+            base_runtime = merged.get("runtime")
+            if not isinstance(base_runtime, dict):
+                base_runtime = {}
+            merged["runtime"] = {**base_runtime, **runtime_override}
+
+        timeframe_cfg = override_config.get("timeframe")
+        if isinstance(timeframe_cfg, dict):
+            timeframe_name = ConfigLoader._normalize_timeframe_name(
+                timeframe_cfg.get("name")
+            )
+            bar_window = timeframe_cfg.get("bar_window")
+            bar_interval = timeframe_cfg.get("bar_interval")
+
+            strategies = merged.get("strategies") or []
+            for strategy in strategies:
+                if not isinstance(strategy, dict):
+                    continue
+
+                setting = strategy.setdefault("setting", {})
+                if not isinstance(setting, dict):
+                    setting = {}
+                    strategy["setting"] = setting
+
+                if bar_window is not None:
+                    setting["bar_window"] = bar_window
+                if bar_interval is not None:
+                    setting["bar_interval"] = (
+                        str(bar_interval).strip().upper() if isinstance(bar_interval, str) else bar_interval
+                    )
+
+                if timeframe_name:
+                    strategy["strategy_name"] = ConfigLoader._append_timeframe_suffix(
+                        strategy.get("strategy_name", "default_strategy"),
+                        timeframe_name,
+                    )
+                    setting["timeframe"] = timeframe_name
+
             return merged
-            
-        # 简单的合并逻辑：取第一个策略进行合并
-        # 我们假设 run.bat 每次启动只针对一个策略/时间窗口
+
+        # Legacy override format: merge first strategy.
+        override_strategies = override_config.get("strategies") or []
+        if not override_strategies:
+            return merged
+
+        if "strategies" not in merged or not merged.get("strategies"):
+            merged["strategies"] = [
+                {
+                    **(strategy or {}),
+                    "setting": dict((strategy or {}).get("setting") or {}),
+                }
+                for strategy in override_strategies
+                if isinstance(strategy, dict)
+            ]
+            return merged
+
         base_strategy = merged["strategies"][0]
-        override_strategy = override_config["strategies"][0]
-        
-        # 1. 覆盖 strategy_name (关键! 用于 pickle 文件名)
+        override_strategy = next(
+            (item for item in override_strategies if isinstance(item, dict)),
+            None,
+        )
+        if not override_strategy:
+            return merged
+
         if "strategy_name" in override_strategy:
             base_strategy["strategy_name"] = override_strategy["strategy_name"]
-            
-        # 2. 合并 setting
-        if "setting" in override_strategy:
-            if "setting" not in base_strategy:
-                base_strategy["setting"] = {}
-            
-            # 更新 setting 中的字段 (如 bar_window)
-            base_strategy["setting"].update(override_strategy["setting"])
-            
+
+        override_setting = override_strategy.get("setting")
+        if isinstance(override_setting, dict):
+            base_setting = base_strategy.setdefault("setting", {})
+            if not isinstance(base_setting, dict):
+                base_setting = {}
+                base_strategy["setting"] = base_setting
+            base_setting.update(override_setting)
+
         return merged
-                
+
     @staticmethod
     def load_target_products(path: str = "config/general/trading_target.toml") -> list[str]:
         """

@@ -179,18 +179,22 @@ def main() -> None:
     log_name = "strategy.log"
     if args.override_config:
         path = Path(args.override_config)
-        timeframe = path.stem  # 例如 "config/timeframe/15m.toml" 中的 "15m"
-        
-        # 如果提供了覆盖配置，且看起来像时间窗口配置
-        # 将日志目录修改为对应的子目录: data/logs/15m
+        timeframe = path.stem
+
+        try:
+            override_config_path = path if path.is_absolute() else (PROJECT_ROOT / path)
+            override_config = ConfigLoader.load_toml(str(override_config_path))
+            timeframe = ConfigLoader.extract_timeframe_name(override_config, fallback=timeframe)
+        except Exception:
+            # override ???????????????
+            pass
+
         base_log_dir = Path(args.log_dir)
         if base_log_dir.name != timeframe:
             args.log_dir = str(base_log_dir / timeframe)
-            
-        # 设置日志文件名: strategy_15m.log
+
         log_name = f"strategy_{timeframe}.log"
-    
-    # 将 log_name 注入 args，供 run_daemon 使用
+
     args.log_name = log_name
     
     setup_logging(args.log_level, args.log_dir, args.log_name)

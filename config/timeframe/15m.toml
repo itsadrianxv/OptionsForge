@@ -1,6 +1,4 @@
-[[strategies]]
-strategy_name = "volatility_strategy_15m"
-
-[strategies.setting]
+﻿[timeframe]
+name = "15m"
 bar_window = 15
 bar_interval = "MINUTE"
