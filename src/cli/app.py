@@ -10,7 +10,21 @@ import typer.testing as typer_testing
 
 from src import __version__
 from src.cli.commands.backtest import command as backtest_command
-from src.cli.commands.create import command as create_command
+from src.cli.commands.create import (
+    CREATE_CLEAR_HELP,
+    CREATE_COMMAND_HELP,
+    CREATE_DEFAULT_HELP,
+    CREATE_DESTINATION_HELP,
+    CREATE_FORCE_HELP,
+    CREATE_NO_INTERACTIVE_HELP,
+    CREATE_OVERWRITE_HELP,
+    CREATE_PRESET_HELP,
+    CREATE_WITH_HELP,
+    CREATE_WITH_OPTION_HELP,
+    CREATE_WITHOUT_HELP,
+    CREATE_WITHOUT_OPTION_HELP,
+    command as create_command,
+)
 from src.cli.commands.doctor import command as doctor_command
 from src.cli.commands.examples import command as examples_command
 from src.cli.commands.init import command as init_command
@@ -41,7 +55,7 @@ def app() -> None:
     """统一暴露初始化、运行、回测、校验与诊断命令。"""
 
 
-@app.command("create", help="按需装配并生成整仓库级期权策略脚手架。")
+@app.command("create", help=CREATE_COMMAND_HELP)
 @click.argument("name", required=False)
 @click.option(
     "--destination",
@@ -49,26 +63,26 @@ def app() -> None:
     type=click.Path(path_type=Path, file_okay=False),
     default=Path("."),
     show_default=True,
-    help="输出父目录，最终会生成到 <destination>/<name>/。",
+    help=CREATE_DESTINATION_HELP,
 )
 @click.option(
     "--preset",
     type=click.Choice(["custom", "ema-cross", "iv-rank", "delta-neutral"], case_sensitive=False),
     default=None,
-    help="策略预设。",
+    help=CREATE_PRESET_HELP,
 )
 @click.option(
     "--with",
     "with_",
     multiple=True,
     type=click.Choice(["selection", "position-sizing", "pricing", "greeks-risk", "execution", "hedging", "monitoring", "observability"], case_sensitive=False),
-    help="显式开启能力，可重复传入。",
+    help=CREATE_WITH_HELP,
 )
 @click.option(
     "--without",
     multiple=True,
     type=click.Choice(["selection", "position-sizing", "pricing", "greeks-risk", "execution", "hedging", "monitoring", "observability"], case_sensitive=False),
-    help="显式关闭能力，可重复传入。",
+    help=CREATE_WITHOUT_HELP,
 )
 @click.option(
     "--with-option",
@@ -89,7 +103,7 @@ def app() -> None:
         "monitoring",
         "decision-observability",
     ], case_sensitive=False),
-    help="显式开启二级子选项，可重复传入。",
+    help=CREATE_WITH_OPTION_HELP,
 )
 @click.option(
     "--without-option",
@@ -110,13 +124,13 @@ def app() -> None:
         "monitoring",
         "decision-observability",
     ], case_sensitive=False),
-    help="显式关闭二级子选项，可重复传入。",
+    help=CREATE_WITHOUT_OPTION_HELP,
 )
-@click.option("--force", is_flag=True, help="跳过破坏性目录操作的二次确认。")
-@click.option("--clear", is_flag=True, help="目标目录非空时先清空再生成。")
-@click.option("--overwrite", is_flag=True, help="目标目录非空时仅覆盖冲突文件。")
-@click.option("-y", "--default", "use_default", is_flag=True, help="跳过提问，使用默认预设与默认能力组合。")
-@click.option("--no-interactive", is_flag=True, help="禁用交互模式，仅按显式 flags 执行。")
+@click.option("--force", is_flag=True, help=CREATE_FORCE_HELP)
+@click.option("--clear", is_flag=True, help=CREATE_CLEAR_HELP)
+@click.option("--overwrite", is_flag=True, help=CREATE_OVERWRITE_HELP)
+@click.option("-y", "--default", "use_default", is_flag=True, help=CREATE_DEFAULT_HELP)
+@click.option("--no-interactive", is_flag=True, help=CREATE_NO_INTERACTIVE_HELP)
 def create_click(
     name: str | None,
     destination: Path,
