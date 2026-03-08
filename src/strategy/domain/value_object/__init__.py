@@ -15,23 +15,47 @@ Value Object Module
 """
 
 from .trading.order_instruction import OrderInstruction, Direction, Offset, OrderType
-from .market.account_snapshot import AccountSnapshot
-from .market.position_snapshot import PositionSnapshot, PositionDirection
-from .market.contract_params import ContractParams
-from .market.quote_request import QuoteRequest
-from .market.option_contract import OptionContract
+from .market import (
+    AccountSnapshot,
+    ContractParams,
+    OptionChainEntry,
+    OptionChainSnapshot,
+    OptionContract,
+    OptionContractSnapshot,
+    OptionQuoteSnapshot,
+    PositionDirection,
+    PositionSnapshot,
+    QuoteRequest,
+)
 from .pricing.greeks import GreeksInput, GreeksResult, IVResult
-from .risk.risk import RiskThresholds, RiskCheckResult, PortfolioGreeks, PositionGreeksEntry
+from .risk import (
+    GammaScalpConfig,
+    HedgeResult,
+    HedgingConfig,
+    PortfolioGreeks,
+    PositionGreeksEntry,
+    RiskCheckResult,
+    RiskThresholds,
+    ScalpResult,
+    SizingResult,
+)
 from .trading.order_execution import OrderExecutionConfig, ManagedOrder
 from .trading.advanced_order import (
     AdvancedOrderType, AdvancedOrderStatus,
     AdvancedOrderRequest, AdvancedOrder, ChildOrder, SliceEntry,
 )
-from .risk.hedging import HedgingConfig, HedgeResult, GammaScalpConfig, ScalpResult
 from .pricing.vol_surface import VolQuote, VolQueryResult, VolSmile, TermStructure, VolSurfaceSnapshot
 from .pricing.pricing import ExerciseStyle, PricingModel, PricingInput, PricingResult
-from .risk.sizing import SizingResult
 from .selection.selection import MarketData, RolloverRecommendation, CombinationSelectionResult, SelectionScore
+from .signal.strategy_contract import (
+    DecisionTrace,
+    IndicatorComputationResult,
+    IndicatorContext,
+    OptionSelectionPreference,
+    PipelineStageRecord,
+    SignalContext,
+    SignalDecision,
+)
 
 __all__ = [
     # 交易指令相关
@@ -45,6 +69,10 @@ __all__ = [
     "PositionDirection",
     # 合约相关
     "ContractParams",
+    "OptionContractSnapshot",
+    "OptionQuoteSnapshot",
+    "OptionChainEntry",
+    "OptionChainSnapshot",
     "OptionContract",
     # 报价相关
     "QuoteRequest",
@@ -90,4 +118,12 @@ __all__ = [
     "RolloverRecommendation",
     "CombinationSelectionResult",
     "SelectionScore",
+    # 策略契约相关
+    "IndicatorContext",
+    "IndicatorComputationResult",
+    "SignalContext",
+    "SignalDecision",
+    "OptionSelectionPreference",
+    "PipelineStageRecord",
+    "DecisionTrace",
 ]
