@@ -114,6 +114,16 @@ CAPABILITY_OPTION_TO_SERVICE_KEY: dict[CapabilityOptionKey, str] = {
     CapabilityOptionKey.DECISION_OBSERVABILITY: "decision_observability",
 }
 
+CAPABILITY_OPTION_DEPENDENCIES: dict[CapabilityOptionKey, tuple[CapabilityOptionKey, ...]] = {
+    CapabilityOptionKey.OPTION_SELECTOR: (CapabilityOptionKey.OPTION_CHAIN,),
+    CapabilityOptionKey.PORTFOLIO_RISK: (CapabilityOptionKey.GREEKS_CALCULATOR,),
+    CapabilityOptionKey.ADVANCED_ORDER_SCHEDULER: (CapabilityOptionKey.SMART_ORDER_EXECUTOR,),
+    CapabilityOptionKey.DELTA_HEDGING: (CapabilityOptionKey.GREEKS_CALCULATOR,),
+    CapabilityOptionKey.VEGA_HEDGING: (CapabilityOptionKey.GREEKS_CALCULATOR,),
+}
+
+CAPABILITY_OPTION_MUTEX_RULES: tuple[tuple[CapabilityOptionKey, CapabilityOptionKey], ...] = ()
+
 SERVICE_ACTIVATION_KEYS: tuple[str, ...] = (
     "future_selection",
     "option_chain",
@@ -259,6 +269,29 @@ def capability_option_label(option: CapabilityOptionKey) -> str:
     return CAPABILITY_OPTION_LABELS[option]
 
 
+def validate_enabled_options(enabled_options: tuple[CapabilityOptionKey, ...]) -> tuple[CapabilityOptionKey, ...]:
+    """校验二级子选项之间的依赖与互斥关系。"""
+    enabled_set = set(enabled_options)
+
+    for option, dependencies in CAPABILITY_OPTION_DEPENDENCIES.items():
+        if option not in enabled_set:
+            continue
+        missing = tuple(dependency for dependency in dependencies if dependency not in enabled_set)
+        if missing:
+            dependency_names = "、".join(capability_option_label(item) for item in missing)
+            raise ValueError(
+                f"子选项 `{option.value}` 依赖 {dependency_names}，请补齐依赖后再生成。"
+            )
+
+    for left, right in CAPABILITY_OPTION_MUTEX_RULES:
+        if left in enabled_set and right in enabled_set:
+            raise ValueError(
+                f"子选项 `{left.value}` 与 `{right.value}` 不能同时启用。"
+            )
+
+    return enabled_options
+
+
 def get_capability_options(capability: CapabilityKey) -> tuple[CapabilityOptionKey, ...]:
     """返回能力组下的二级子选项。"""
     return CAPABILITY_GROUP_OPTIONS[capability]
@@ -304,7 +337,8 @@ def resolve_capability_options(
 
     resolved.update(include_option_set)
     resolved.difference_update(exclude_option_set)
-    return tuple(item for item in CAPABILITY_OPTION_ORDER if item in resolved)
+    resolved_options = tuple(item for item in CAPABILITY_OPTION_ORDER if item in resolved)
+    return validate_enabled_options(resolved_options)
 
 
 def build_service_activation(enabled_options: tuple[CapabilityOptionKey, ...]) -> dict[str, bool]:

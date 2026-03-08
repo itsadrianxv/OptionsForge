@@ -31,6 +31,17 @@ def test_help_lists_phase_two_commands() -> None:
     assert "examples" in result.stdout
 
 
+def test_create_help_uses_refined_copy() -> None:
+    result = runner.invoke(app, ["create", "--help"])
+
+    assert result.exit_code == 0
+    assert "支持交互式向导，也支持通过 flags 一次性生成" in result.stdout
+    assert "项目输出父目录；最终会生成到 <destination>/<name>/。" in result.stdout
+    assert "按能力组显式开启功能，可重复传入；适合非交互模式精确控制。" in result.stdout
+    assert "按二级子能力显式关闭，可重复传入；用于更细粒度裁剪。" in result.stdout
+    assert "跳过目录覆盖类操作的二次确认；仅在确认目标目录可被修改时使用。" in result.stdout
+
+
 def test_init_command_generates_strategy_scaffold(tmp_path: Path) -> None:
     result = runner.invoke(
         app,
@@ -61,6 +72,11 @@ def test_create_command_generates_project_workspace(tmp_path: Path) -> None:
     assert config["strategy_contracts"]["indicator_service"] == (
         "src.strategies.alpha_lab.indicator_service:AlphaLabIndicatorService"
     )
+    assert "项目脚手架已生成完成。" in result.stdout
+    assert f"- 项目根目录：{created_dir}" in result.stdout
+    assert "- 策略包：src/strategies/alpha_lab" in result.stdout
+    assert "- 主配置：" in result.stdout
+    assert "- 下一步：进入项目目录后，优先检查主配置并按需调整能力开关。" in result.stdout
 
 
 def test_create_command_supports_nested_option_flags(tmp_path: Path) -> None:
@@ -73,6 +89,8 @@ def test_create_command_supports_nested_option_flags(tmp_path: Path) -> None:
             str(tmp_path),
             "--preset",
             "custom",
+            "--with",
+            "greeks-risk",
             "--with",
             "hedging",
             "--with-option",
@@ -89,6 +107,26 @@ def test_create_command_supports_nested_option_flags(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert config["service_activation"]["vega_hedging"] is True
     assert config["service_activation"]["delta_hedging"] is False
+
+
+def test_create_command_rejects_missing_nested_option_dependencies(tmp_path: Path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "create",
+            "bad_dependency",
+            "--destination",
+            str(tmp_path),
+            "--preset",
+            "custom",
+            "--with-option",
+            "vega-hedging",
+            "--no-interactive",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "依赖" in result.stdout or "依赖" in result.stderr
 
 
 def test_run_command_forwards_arguments_to_legacy_main() -> None:

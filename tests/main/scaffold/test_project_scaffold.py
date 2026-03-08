@@ -106,7 +106,7 @@ def test_create_project_scaffold_supports_nested_option_overrides(tmp_path: Path
             destination=tmp_path,
             preset="custom",
             include_capabilities=(CapabilityKey.HEDGING,),
-            include_options=(CapabilityOptionKey.VEGA_HEDGING,),
+            include_options=(CapabilityOptionKey.VEGA_HEDGING, CapabilityOptionKey.GREEKS_CALCULATOR),
             exclude_options=(CapabilityOptionKey.DELTA_HEDGING,),
             no_interactive=True,
         )
@@ -117,10 +117,13 @@ def test_create_project_scaffold_supports_nested_option_overrides(tmp_path: Path
     raw_text = config_path.read_text(encoding="utf-8")
 
     assert CapabilityKey.HEDGING in plan.capabilities
+    assert CapabilityKey.GREEKS_RISK in plan.capabilities
     assert CapabilityOptionKey.VEGA_HEDGING in plan.enabled_options
+    assert CapabilityOptionKey.GREEKS_CALCULATOR in plan.enabled_options
     assert CapabilityOptionKey.DELTA_HEDGING not in plan.enabled_options
     assert config["service_activation"]["vega_hedging"] is True
     assert config["service_activation"]["delta_hedging"] is False
+    assert config["service_activation"]["greeks_calculator"] is True
     assert "[hedging.vega_hedging]" in raw_text
 
 
@@ -133,6 +136,20 @@ def test_create_project_scaffold_rejects_conflicting_nested_option_overrides(tmp
                 preset="custom",
                 include_options=(CapabilityOptionKey.VEGA_HEDGING,),
                 exclude_options=(CapabilityOptionKey.VEGA_HEDGING,),
+                no_interactive=True,
+            )
+        )
+
+
+def test_create_project_scaffold_rejects_missing_option_dependencies(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="依赖"):
+        create_project_scaffold(
+            CreateOptions(
+                name="bad_dependency",
+                destination=tmp_path,
+                preset="custom",
+                include_options=(CapabilityOptionKey.VEGA_HEDGING,),
+                exclude_options=(CapabilityOptionKey.DELTA_HEDGING,),
                 no_interactive=True,
             )
         )

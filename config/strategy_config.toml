@@ -9,6 +9,36 @@ strike_level = 4                  # 期权选合约时的虚值档位（OTM Leve
 bar_window = 1                    # K线合成窗口大小。1 表示不合成，直接使用 1 分钟线；15 表示合成 15 分钟线
 bar_interval = "MINUTE"           # K线合成的基础周期单位，可选 "MINUTE", "HOUR", "DAILY"
 
+# 策略契约绑定：明确指定指标/信号服务实现
+[strategy_contracts]
+indicator_service = "src.strategy.domain.domain_service.signal.indicator_service:IndicatorService"
+signal_service = "src.strategy.domain.domain_service.signal.signal_service:SignalService"
+
+[strategy_contracts.indicator_kwargs]
+
+[strategy_contracts.signal_kwargs]
+
+# 领域服务按需装配开关
+[service_activation]
+future_selection = true
+option_chain = true
+option_selector = true
+position_sizing = false
+pricing_engine = false
+greeks_calculator = false
+portfolio_risk = false
+smart_order_executor = false
+advanced_order_scheduler = false
+delta_hedging = false
+vega_hedging = false
+monitoring = true
+decision_observability = true
+
+# 决策级可观测性配置
+[observability]
+decision_journal_maxlen = 200
+emit_noop_decisions = false
+
 # 运行时配置
 [runtime]
 log_level = "INFO"            # 日志输出级别，可选 DEBUG, INFO, WARNING, ERROR

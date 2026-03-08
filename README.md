@@ -234,7 +234,7 @@ option-scaffold create alpha_lab
 如果想在顶层能力组之下继续细化二级子选项，也可以这样写：
 
 ```powershell
-option-scaffold create alpha_lab --preset custom --with hedging --with-option vega-hedging --without-option delta-hedging --no-interactive
+option-scaffold create alpha_lab --preset custom --with greeks-risk --with hedging --with-option vega-hedging --without-option delta-hedging --no-interactive
 ```
 
 ### 浏览内置示例
