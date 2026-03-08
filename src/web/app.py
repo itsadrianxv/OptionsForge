@@ -152,6 +152,34 @@ def api_events(variant_name):
         return jsonify(events)
     return jsonify([])
 
+
+@app.route("/api/decisions/<variant_name>")
+def api_decisions(variant_name):
+    """读取决策轨迹，优先来自 monitor_signal_event，回退到快照 recent_decisions。"""
+    vt_symbol = request.args.get("vt_symbol", "")
+    limit = request.args.get("limit", "120")
+    try:
+        limit_int = int(limit) if str(limit).isdigit() else 120
+    except Exception:
+        limit_int = 120
+    limit_int = max(1, min(limit_int, 500))
+
+    if postgres_ready():
+        events = postgres_reader.get_events(
+            variant=variant_name,
+            vt_symbol=vt_symbol,
+            event_type="decision_trace",
+            limit=limit_int,
+        )
+        return jsonify({"items": events, "source": "events"})
+
+    snapshot = get_snapshot_best_effort(variant_name) or {}
+    decisions = list(snapshot.get("recent_decisions", []) or [])
+    if vt_symbol:
+        decisions = [item for item in decisions if str(item.get("vt_symbol", "") or "") == vt_symbol]
+    decisions = decisions[:limit_int]
+    return jsonify({"items": decisions, "source": "snapshot"})
+
 @app.route("/api/bars")
 def api_bars():
     vt_symbol = request.args.get("vt_symbol", "")

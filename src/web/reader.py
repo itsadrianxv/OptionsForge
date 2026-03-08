@@ -162,6 +162,10 @@ class SnapshotJsonTransformer:
             # indicators: 解析特殊标记
             raw_indicators = instrument_data.get("indicators", {})
             indicators = SnapshotJsonTransformer.resolve_special_markers(raw_indicators)
+            raw_status = instrument_data.get("status", {})
+            status = SnapshotJsonTransformer.resolve_special_markers(raw_status)
+            if not isinstance(status, dict):
+                status = {}
 
             # delivery_month
             delivery_month = SnapshotJsonTransformer.extract_delivery_month(vt_symbol)
@@ -171,6 +175,7 @@ class SnapshotJsonTransformer:
                 "ohlc": ohlc,
                 "volumes": volumes,
                 "indicators": indicators,
+                "status": status,
                 "last_price": last_price,
                 "delivery_month": delivery_month,
             }
@@ -284,6 +289,11 @@ class SnapshotJsonTransformer:
         position_aggregate = snapshot.get("position_aggregate", {})
         positions = SnapshotJsonTransformer.transform_positions(position_aggregate)
         orders = SnapshotJsonTransformer.transform_orders(position_aggregate)
+        recent_decisions = SnapshotJsonTransformer.resolve_special_markers(
+            snapshot.get("recent_decisions", [])
+        )
+        if not isinstance(recent_decisions, list):
+            recent_decisions = []
 
         return {
             "timestamp": timestamp,
@@ -291,6 +301,7 @@ class SnapshotJsonTransformer:
             "instruments": instruments,
             "positions": positions,
             "orders": orders,
+            "recent_decisions": recent_decisions,
         }
 
 
