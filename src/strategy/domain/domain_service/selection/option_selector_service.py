@@ -9,6 +9,7 @@ from typing import Optional, List, Callable, Any, Dict
 
 import pandas as pd
 
+from ...value_object.market.option_chain import OptionChainSnapshot
 from ...value_object.market.option_contract import OptionContract, OptionType
 from ...value_object.combination import CombinationType
 from ...value_object.selection.selection import CombinationSelectionResult, SelectionScore
@@ -427,6 +428,26 @@ class OptionSelectorService:
             )
 
         return result
+
+    def select_option_from_chain(
+        self,
+        chain: OptionChainSnapshot,
+        option_type: str,
+        strike_level: Optional[int] = None,
+        log_func: Optional[Callable] = None,
+    ) -> Optional[OptionContract]:
+        """基于统一期权链快照进行单腿期权选择。"""
+        if chain is None or chain.is_empty:
+            if log_func:
+                log_func("[DEBUG-OPT] 期权链为空，无法筛选")
+            return None
+        return self.select_option(
+            chain.to_selector_frame(),
+            option_type=option_type,
+            underlying_price=chain.underlying_price,
+            strike_level=strike_level,
+            log_func=log_func,
+        )
     
     def _filter_trading_days(self, df: pd.DataFrame, log_func: Optional[Callable] = None) -> pd.DataFrame:
         """过滤到期日不合适的合约"""
@@ -752,6 +773,30 @@ class OptionSelectorService:
             )
 
         return result
+
+    def select_by_delta_from_chain(
+        self,
+        chain: OptionChainSnapshot,
+        option_type: str,
+        target_delta: float,
+        greeks_data: Dict[str, GreeksResult],
+        delta_tolerance: Optional[float] = None,
+        log_func: Optional[Callable] = None,
+    ) -> Optional[OptionContract]:
+        """基于统一期权链快照进行 Delta 选档。"""
+        if chain is None or chain.is_empty:
+            if log_func:
+                log_func("[DELTA] 期权链为空，无法进行 Delta 选档")
+            return None
+        return self.select_by_delta(
+            chain.to_selector_frame(),
+            option_type=option_type,
+            underlying_price=chain.underlying_price,
+            target_delta=target_delta,
+            greeks_data=greeks_data,
+            delta_tolerance=delta_tolerance,
+            log_func=log_func,
+        )
 
 
     def _validate_combination(self, result: CombinationSelectionResult) -> Optional[str]:
