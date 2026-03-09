@@ -4,47 +4,44 @@
 
 ## 1. CLI 是什么
 
-本项目提供了统一命令行入口 `option-scaffold`，用于完成以下常见工作：
+本项目提供统一命令行入口 `option-scaffold`，用于完成以下常见工作：
 
-- 初始化新的策略骨架
-- 启动策略主程序
+- 创建整仓库级策略工作区
+- 生成单个策略开发骨架
+- 运行策略主程序
 - 执行组合策略回测
-- 校验配置与契约绑定
-- 诊断本地依赖与环境
+- 校验配置、契约绑定与回测参数
+- 诊断本地环境与依赖
 - 浏览仓库内置示例
 
-CLI 入口对应的模块为：
+CLI 对应的两个入口如下：
 
 - 可执行命令：`option-scaffold`
 - Python 模块：`python -m src.cli.app`
 
-如果你处于本地开发阶段，推荐优先使用模块方式启动；如果你希望像正式命令一样直接执行，再安装可编辑脚本。
+如果你在本地开发阶段调试 CLI，推荐优先使用模块方式；如果你希望像正式命令一样直接执行，再安装可编辑脚本。
 
-## 2. 环境要求
+## 2. 环境准备
 
-在使用 CLI 前，建议先准备以下环境：
+建议在使用 CLI 前准备好以下环境：
 
 - Python `3.11+`
-- 已创建虚拟环境
-- 已安装项目依赖
+- 虚拟环境
+- 项目依赖
+- 可编辑安装（这样可以直接使用 `option-scaffold`）
 
-在仓库根目录执行以下命令：
+在仓库根目录执行：
 
 ```powershell
-# 进入仓库根目录
 cd D:\work_projects\option-strategy-scaffold
 
-# 激活虚拟环境（PowerShell）
 .\.venv\Scripts\Activate.ps1
 
-# 安装依赖
 pip install -r requirements.txt
-
-# 安装为可编辑模式，生成 option-scaffold 命令
 pip install -e .
 ```
 
-如果你暂时不想安装可执行脚本，也可以直接使用：
+如果暂时不想执行 `pip install -e .`，也可以直接使用模块入口：
 
 ```powershell
 python -m src.cli.app --help
@@ -52,9 +49,9 @@ python -m src.cli.app --help
 
 ## 3. 两种启动方式
 
-### 3.1 开发态启动（推荐）
+### 3.1 开发态启动
 
-这种方式最适合本地开发、调试和断点跟踪：
+最适合本地开发、调试和断点跟踪：
 
 ```powershell
 python -m src.cli.app --help
@@ -63,338 +60,382 @@ python -m src.cli.app --help
 优点：
 
 - 不依赖系统 PATH
-- 最适合在 IDE 中调试
-- 修改源码后可直接再次运行
+- 适合 IDE 调试
+- 修改代码后可直接重新运行
 
 ### 3.2 命令态启动
 
-在执行过 `pip install -e .` 后，可以直接使用项目脚本名：
+执行过 `pip install -e .` 后，可直接使用：
 
 ```powershell
 option-scaffold --help
 ```
 
-如果当前 Shell 没有自动识别该命令，也可以直接调用虚拟环境中的可执行文件：
+如果当前 shell 还没有识别该命令，也可以直接调用虚拟环境中的可执行文件：
 
 ```powershell
 .\.venv\Scripts\option-scaffold.exe --help
 ```
 
-## 4. 查看 CLI 总帮助
+## 4. 根命令行为
+
+根命令 `option-scaffold` 现在有两种常见行为：
+
+### 4.1 交互终端中直接执行 `option-scaffold`
+
+如果当前终端是交互式 TTY，并且没有传任何子命令和参数，会进入主菜单，而不是直接显示 help。
+
+主菜单包含：
+
+1. 创建策略工作区
+2. 查看示例
+3. 环境诊断
+4. 退出
+
+默认选项是“创建策略工作区”，所以直接回车就会进入 `create` 流程。
+
+```powershell
+option-scaffold
+```
+
+### 4.2 非交互环境或显式查看帮助
+
+以下场景仍然保持普通 CLI 语义：
+
+- `option-scaffold --help`
+- `option-scaffold --version`
+- `option-scaffold <子命令> ...`
+- 非交互环境下执行 `option-scaffold`
+
+例如：
 
 ```powershell
 option-scaffold --help
+option-scaffold --version
+```
+
+## 5. 查看总帮助与版本
+
+```powershell
+option-scaffold --help
+option-scaffold --version
 ```
 
 或：
 
 ```powershell
 python -m src.cli.app --help
+python -m src.cli.app --version
 ```
 
 当前 CLI 提供以下子命令：
 
-- `init`：生成策略开发骨架
+- `create`：创建整仓库级策略工作区
+- `init`：生成单个策略开发骨架
 - `run`：运行策略主程序
 - `backtest`：执行组合策略回测
 - `validate`：校验配置、契约绑定与可选回测参数
-- `doctor`：诊断本地环境与依赖
+- `doctor`：诊断本地 CLI 环境、配置文件与运行依赖
 - `examples`：列出并查看内置示例
 
-查看某个子命令的帮助时，只需要追加 `--help`：
+查看某个子命令的帮助时，直接追加 `--help`：
 
 ```powershell
+option-scaffold create --help
 option-scaffold run --help
 option-scaffold validate --help
 option-scaffold doctor --help
 ```
 
-## 5. 推荐的本地使用流程
+## 6. 推荐使用流程
 
-建议你在本地开发时遵循下面这条顺序：
+如果你第一次接触本项目，推荐按下面顺序使用：
 
 ```powershell
-# 1) 看看 CLI 能否正常启动
-python -m src.cli.app --help
+# 1) 查看 CLI 是否可正常启动
+option-scaffold --help
 
 # 2) 先诊断环境
-python -m src.cli.app doctor
-
-# 3) 校验策略配置
-python -m src.cli.app validate --config config/strategy_config.toml
-
-# 4) 查看内置示例
-python -m src.cli.app examples
-
-# 5) 按需运行策略或回测
-python -m src.cli.app run --config config/strategy_config.toml
-python -m src.cli.app backtest --config config/strategy_config.toml --start 2025-01-01 --end 2025-03-01 --no-chart
-```
-
-如果你已经完成 `pip install -e .`，可以把上面的 `python -m src.cli.app` 全部替换为 `option-scaffold`。
-
-## 6. 各子命令说明
-
-### 6.1 `doctor`：先做环境体检
-
-`doctor` 用于检查本地 CLI 环境、配置文件、依赖安装情况以及部分运行前置条件。
-
-常用命令：
-
-```powershell
 option-scaffold doctor
-```
 
-严格模式：
-
-```powershell
-option-scaffold doctor --strict
-```
-
-额外检测数据库连通性：
-
-```powershell
-option-scaffold doctor --check-db
-```
-
-适用场景：
-
-- 第一次拉起项目时
-- 刚切换 Python 环境时
-- 命令运行失败但不确定是配置问题还是依赖问题时
-
-### 6.2 `validate`：校验配置是否可运行
-
-`validate` 会检查策略配置、交易标的配置、契约绑定、订阅配置，以及可选的回测参数覆盖值。
-
-最常用的写法：
-
-```powershell
+# 3) 校验当前配置
 option-scaffold validate --config config/strategy_config.toml
-```
 
-带覆盖配置：
+# 4) 浏览示例
+option-scaffold examples
 
-```powershell
-option-scaffold validate --config config/strategy_config.toml --override-config config/timeframe/5m.toml
-```
+# 5) 创建新的策略工作区
+option-scaffold create
 
-校验回测参数：
-
-```powershell
-option-scaffold validate --config config/strategy_config.toml --start 2025-01-01 --end 2025-03-01 --capital 1000000 --rate 0.0002 --slippage 0.2 --size 10 --pricetick 0.001 --no-chart
-```
-
-它适合放在真正运行 `run` 或 `backtest` 之前，作为一层快速前置检查。
-
-### 6.3 `run`：运行策略主程序
-
-`run` 用于启动策略主程序，支持运行模式、日志级别、日志目录、无界面模式、模拟交易模式等参数。
-
-最常用写法：
-
-```powershell
+# 6) 进入工作区后继续校验与运行
+cd alpha_lab
+option-scaffold validate --config config/strategy_config.toml
 option-scaffold run --config config/strategy_config.toml
 ```
 
-守护进程模式：
+如果你更倾向于模块方式，也可以把上述命令全部替换为 `python -m src.cli.app ...`。
+
+## 7. `create`：创建策略工作区
+
+`create` 用于生成整仓库级期权策略工作区，是当前推荐的新项目创建入口。
+
+### 7.1 交互式创建
+
+最常用方式：
 
 ```powershell
-option-scaffold run --mode daemon --config config/strategy_config.toml
+option-scaffold create
 ```
 
-无界面 + 模拟交易：
+如果当前在交互终端中运行，向导会按以下步骤引导你：
+
+1. 项目命名
+2. 选择策略预设
+3. 是否自定义模块
+4. 如选择自定义，则逐项确认 capability / option
+5. 处理已有目录
+6. 最终确认
+
+当前默认行为如下：
+
+- 默认项目名：`alpha_lab`
+- 默认 preset：`custom`
+- 默认不展开高级模块定制
+- 生成前一定会出现最终确认页
+
+### 7.2 常见示例
 
 ```powershell
-option-scaffold run --config config/strategy_config.toml --no-ui --paper
+# 交互创建
+option-scaffold create
+
+# 默认快速创建
+option-scaffold create -y
+
+# 指定项目名
+option-scaffold create alpha_lab
+
+# 指定预设与输出目录
+option-scaffold create alpha_lab --preset ema-cross -d .\projects
+
+# 非交互精细控制
+option-scaffold create alpha_lab --preset custom --with hedging --with-option vega-hedging --no-interactive
 ```
 
-指定日志级别与目录：
+### 7.3 重要参数
+
+- `NAME`：项目名称；省略时交互模式下会提示输入，默认是 `alpha_lab`
+- `-d, --destination`：项目输出父目录，最终生成到 `<destination>/<name>/`
+- `--preset`：策略预设；可选 `custom`、`ema-cross`、`iv-rank`、`delta-neutral`
+- `--with` / `--without`：按 capability 级别开启或关闭功能
+- `--with-option` / `--without-option`：按 capability 子项开启或关闭功能
+- `-y, --default`：跳过提问，直接按默认值生成
+- `--no-interactive`：禁用交互向导，仅按 flags 和默认规则执行
+- `--clear`：目录非空时先清空再生成
+- `--overwrite`：目录非空时保留目录，仅覆盖冲突文件
+- `--force`：跳过目录覆盖类操作的交互确认
+
+### 7.4 创建完成后的 next steps
+
+`create` 成功后，CLI 会直接输出一组可复制执行的 next steps：
 
 ```powershell
-option-scaffold run --config config/strategy_config.toml --log-level DEBUG --log-dir data/logs
+cd <project>
+option-scaffold validate --config config/strategy_config.toml
+option-scaffold run --config config/strategy_config.toml
 ```
 
-常用参数说明：
+生成出来的工作区 `README.md` 中也会使用同一套 next steps。
 
-- `--mode`：`standalone` 或 `daemon`
-- `--config`：策略配置文件，默认 `config/strategy_config.toml`
-- `--override-config`：附加覆盖配置
-- `--log-level`：`DEBUG` / `INFO` / `WARNING` / `ERROR`
-- `--log-dir`：日志目录，默认 `data/logs`
-- `--no-ui`：无界面运行
-- `--paper`：启用模拟交易模式
+## 8. `init`：生成单个策略骨架
 
-### 6.4 `backtest`：执行组合策略回测
-
-`backtest` 用于运行组合策略回测，并支持日期区间、初始资金、滑点、手续费率等回测参数。
-
-示例：
-
-```powershell
-option-scaffold backtest --config config/strategy_config.toml --start 2025-01-01 --end 2025-03-01 --capital 1000000 --rate 0.0002 --slippage 0.2 --size 10 --pricetick 0.001 --no-chart
-```
-
-常见用途：
-
-- 校验策略在历史区间内的行为
-- 对比不同参数组合效果
-- 在正式接入运行模式前先做策略验证
-
-### 6.5 `init`：生成新的策略骨架
-
-`init` 用于生成新的策略开发目录。
-
-默认写入到仓库根目录下的 `example/`：
+`init` 是较轻量的旧入口，适合只生成一个策略开发骨架，而不是整仓库工作区。
 
 ```powershell
 option-scaffold init ema_breakout
 ```
 
-指定输出目录：
+常见用法：
 
 ```powershell
-option-scaffold init ema_breakout --destination temp
+# 默认输出到 example/
+option-scaffold init ema_breakout
+
+# 指定输出目录
+option-scaffold init ema_breakout --destination .\example
+
+# 允许覆盖已存在目录
+option-scaffold init ema_breakout --force
 ```
 
-允许覆盖已有文件：
+## 9. `validate`：校验配置与绑定关系
+
+`validate` 用于在运行前检查策略配置、契约绑定，以及可选的回测参数覆盖。
 
 ```powershell
-option-scaffold init ema_breakout --destination temp --force
+option-scaffold validate --config config/strategy_config.toml
 ```
 
-适合在你要新建一套策略试验骨架时使用。
+常见示例：
 
-### 6.6 `examples`：浏览仓库内置示例
+```powershell
+# 校验主配置
+option-scaffold validate --config config/strategy_config.toml
 
-列出所有内置示例：
+# 携带覆盖配置一起校验
+option-scaffold validate --config config/strategy_config.toml --override-config config/timeframe/5m.toml
+
+# 连同回测参数一起校验
+option-scaffold validate --config config/strategy_config.toml --start 2025-01-01 --end 2025-03-01 --capital 500000
+```
+
+## 10. `run`：运行策略主程序
+
+`run` 会把参数转发到现有主程序入口，是最常用的执行命令。
+
+最小可执行示例：
+
+```powershell
+option-scaffold run --config config/strategy_config.toml
+```
+
+常见示例：
+
+```powershell
+# 使用默认模式 standalone
+option-scaffold run --config config/strategy_config.toml
+
+# daemon 模式运行
+option-scaffold run --mode daemon --config config/strategy_config.toml
+
+# 无界面 + 模拟交易
+option-scaffold run --config config/strategy_config.toml --no-ui --paper
+
+# 指定日志级别和日志目录
+option-scaffold run --config config/strategy_config.toml --log-level DEBUG --log-dir data/logs/demo
+```
+
+常用参数：
+
+- `--mode`：`standalone` 或 `daemon`
+- `--config`：主配置文件路径，默认 `config/strategy_config.toml`
+- `--override-config`：覆盖配置文件路径
+- `--log-level`：日志级别
+- `--log-dir`：日志目录
+- `--no-ui`：无界面模式运行
+- `--paper`：启用模拟交易模式
+
+## 11. `backtest`：执行回测
+
+`backtest` 用于组合策略回测。
+
+```powershell
+option-scaffold backtest --config config/strategy_config.toml --start 2025-01-01 --end 2025-03-01
+```
+
+常见示例：
+
+```powershell
+option-scaffold backtest --config config/strategy_config.toml --start 2025-01-01 --end 2025-03-01
+
+option-scaffold backtest --config config/strategy_config.toml --start 2025-01-01 --end 2025-03-01 --capital 500000 --rate 0.0001 --slippage 0.5 --size 100 --pricetick 0.1 --no-chart
+```
+
+## 12. `doctor`：诊断环境
+
+`doctor` 用于检查 Python 版本、CLI 依赖、配置文件、数据库环境变量和网关环境等信息。
+
+```powershell
+option-scaffold doctor
+```
+
+常见示例：
+
+```powershell
+# 普通诊断
+option-scaffold doctor
+
+# 将警告也视为失败
+option-scaffold doctor --strict
+
+# 额外检查数据库连通性
+option-scaffold doctor --check-db
+```
+
+这个命令特别适合在以下场景先执行一遍：
+
+- 新机器首次拉起项目
+- 刚改完 `.env` 或网关配置
+- 运行或回测前怀疑依赖未装全
+
+## 13. `examples`：浏览内置示例
+
+`examples` 用于查看仓库中的示例策略目录和说明文档。
 
 ```powershell
 option-scaffold examples
 ```
 
-查看某个示例详情：
+常见示例：
 
 ```powershell
-option-scaffold examples some_example_name
+# 列出全部示例
+option-scaffold examples
+
+# 查看某个示例详情
+option-scaffold examples ema_breakout
 ```
 
-该命令会读取 `example/` 目录下各示例子目录的 `README.md` 内容并展示。
+输出通常会包含：
 
-## 7. 本地开发时如何调试 CLI
+- 示例名称
+- 示例路径
+- 摘要
+- 关键文件列表
+- README 内容（如果存在）
 
-如果你要调试 CLI 本身，而不是只使用它，推荐以下方式：
+## 14. 常见问题
 
-### 7.1 直接跑模块
+### 14.1 直接执行 `option-scaffold` 为什么有时是菜单，有时是帮助？
 
-```powershell
-python -m src.cli.app run --help
-```
+因为根命令现在会根据当前环境自动判断：
 
-这样最适合在 IDE 中设置断点，例如断在：
+- 交互终端 + 无参数：进入主菜单
+- 非交互环境、显式 `--help`、显式子命令：按普通 CLI 行为处理
 
-- `src/cli/app.py`
-- `src/cli/commands/run.py`
-- `src/cli/commands/validate.py`
-- `src/cli/commands/doctor.py`
+### 14.2 为什么 `create` 没有逐项问 capability / option？
 
-### 7.2 先看帮助，再缩小范围
+因为当前默认路径会先问“是否自定义模块”，默认值是“否”。
 
-通常建议按下面顺序定位问题：
+如果你希望逐项控制能力组合：
 
-1. `python -m src.cli.app --help`
-2. `python -m src.cli.app doctor`
-3. `python -m src.cli.app validate --config config/strategy_config.toml`
-4. 再执行 `run` 或 `backtest`
+- 在交互模式中选择“是”
+- 或使用 `--with` / `--without` / `--with-option` / `--without-option` 配合 `--no-interactive`
 
-这样可以先排除 CLI 入口、依赖安装、配置解析等基础问题。
+### 14.3 `run` 提示缺少依赖怎么办？
 
-## 8. 常见问题
-
-### 8.1 `option-scaffold` 命令找不到
-
-通常是因为还没有执行：
-
-```powershell
-pip install -e .
-```
-
-或者当前 Shell 没有使用正确的虚拟环境。
-
-你可以先退回模块方式：
-
-```powershell
-python -m src.cli.app --help
-```
-
-### 8.2 运行时报依赖缺失
-
-先执行：
+先在虚拟环境中安装依赖：
 
 ```powershell
 pip install -r requirements.txt
 pip install -e .
 ```
 
-然后运行：
+然后重新执行：
 
 ```powershell
 option-scaffold doctor
+option-scaffold run --config config/strategy_config.toml
 ```
 
-### 8.3 `validate` 校验失败
+## 15. 一条最短上手路径
 
-优先检查以下内容：
-
-- `config/strategy_config.toml` 是否存在且可解析
-- `config/general/trading_target.toml` 是否存在且 `targets` 非空
-- `--start` / `--end` 日期格式是否为 `YYYY-MM-DD`
-- 回测参数是否为正数或非负数
-- 契约绑定指向的 Python 导入路径是否正确
-
-### 8.4 `examples` 没有列出任何内容
-
-说明仓库下的 `example/` 目录中没有可识别的示例子目录，或者对应示例没有按预期组织。
-
-## 9. 推荐命令速查
+如果你只想快速上手，照着下面执行即可：
 
 ```powershell
-# 查看总帮助
-python -m src.cli.app --help
-
-# 环境诊断
-python -m src.cli.app doctor
-
-# 严格诊断
-python -m src.cli.app doctor --strict
-
-# 配置校验
-python -m src.cli.app validate --config config/strategy_config.toml
-
-# 启动策略
-python -m src.cli.app run --config config/strategy_config.toml
-
-# 守护模式运行
-python -m src.cli.app run --mode daemon --config config/strategy_config.toml
-
-# 运行回测
-python -m src.cli.app backtest --config config/strategy_config.toml --start 2025-01-01 --end 2025-03-01 --no-chart
-
-# 浏览示例
-python -m src.cli.app examples
-
-# 创建策略骨架
-python -m src.cli.app init my_strategy
+option-scaffold doctor
+option-scaffold create
+cd alpha_lab
+option-scaffold validate --config config/strategy_config.toml
+option-scaffold run --config config/strategy_config.toml
 ```
-
-## 10. 建议
-
-如果你是第一次接触本项目，推荐按下面顺序入手：
-
-1. 先跑 `doctor`
-2. 再跑 `validate`
-3. 看 `examples`
-4. 用 `init` 生成自己的策略骨架
-5. 最后再跑 `run` 或 `backtest`
-
-这样能更快确认“环境是否正常、配置是否可用、项目的推荐组织方式是什么”。
