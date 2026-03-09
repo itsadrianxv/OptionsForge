@@ -22,6 +22,7 @@ from .catalog import (
     slugify,
 )
 from .models import CapabilityKey, CapabilityOptionKey, CreateOptions
+from .next_steps import build_next_step_commands
 
 
 CAPABILITY_PROMPT_DESCRIPTIONS: dict[CapabilityKey, str] = {
@@ -64,6 +65,27 @@ def _format_option_summary(options: tuple[CapabilityOptionKey, ...]) -> str:
     if not options:
         return "无"
     return "、".join(capability_option_label(item) for item in options)
+
+
+def _format_directory_policy_summary(
+    *,
+    has_non_empty_target: bool,
+    clear: bool,
+    overwrite: bool,
+) -> str:
+    if not has_non_empty_target:
+        return "新建目录（目标目录为空，可直接生成）"
+    if clear:
+        return "clear（清空目标目录后重新生成）"
+    if overwrite:
+        return "overwrite（保留目录结构并覆盖冲突文件）"
+    return "abort（检测到目录冲突时终止）"
+
+
+def _echo_next_steps_summary(project_dir_name: str) -> None:
+    click.echo("- 生成后建议执行：")
+    for command in build_next_step_commands(project_dir_name):
+        click.echo(f"  - {command}")
 
 
 def _collect_capability_selection(
@@ -140,7 +162,7 @@ def should_prompt_for_create(options: CreateOptions) -> bool:
 def prompt_for_create_options(options: CreateOptions) -> CreateOptions:
     """收集 create 命令所需的交互式选择。"""
     click.echo("欢迎使用 option-scaffold 项目创建向导。")
-    click.echo("接下来会依次确认项目名称、策略预设、能力模块与目录处理方式。")
+    click.echo("接下来会依次确认项目名称、策略预设、模块定制方式、目录处理方式与最终确认。")
     click.echo("带默认值的问题可直接回车接受默认配置。")
 
     _echo_section("第 1 步 · 项目命名")
@@ -176,77 +198,92 @@ def prompt_for_create_options(options: CreateOptions) -> CreateOptions:
         options.include_options,
         options.exclude_options,
     )
-    default_option_set = set(enabled_options)
-    default_capabilities = set(derive_capabilities(enabled_options))
+    default_option_tuple = tuple(enabled_options)
+    default_option_set = set(default_option_tuple)
+    default_capabilities = set(derive_capabilities(default_option_tuple))
 
-    while True:
-        _echo_section("第 3 步 · 选择能力模块")
-        selected_tuple, selected_option_tuple = _collect_capability_selection(
-            default_capabilities,
-            default_option_set,
-        )
+    _echo_section("第 3 步 · 是否自定义模块")
+    click.echo(f"- 预设默认能力：{_format_capability_summary(derive_capabilities(default_option_tuple))}")
+    click.echo(f"- 预设默认子项：{_format_option_summary(default_option_tuple)}")
+    customize_modules = click.confirm("是否自定义模块", default=False, show_default=True)
 
-        preview = build_enabled_options_auto_fix_preview(
-            selected_option_tuple,
-            preset_key=preset_key,
-        )
-        if preview is None:
-            break
+    if customize_modules:
+        while True:
+            _echo_section("第 4 步 · 自定义能力模块")
+            selected_tuple, selected_option_tuple = _collect_capability_selection(
+                default_capabilities,
+                default_option_set,
+            )
 
-        fixed_options = apply_auto_fix_preview(selected_option_tuple, preview)
-        _echo_auto_fix_preview(selected_option_tuple, fixed_options, preview)
-        if click.confirm("是否应用上述自动修复建议", default=True, show_default=True):
-            selected_option_tuple = fixed_options
-            selected_tuple = derive_capabilities(selected_option_tuple)
-            click.echo("已应用自动修复，将使用修复后的能力组合继续生成。")
-            break
+            preview = build_enabled_options_auto_fix_preview(
+                selected_option_tuple,
+                preset_key=preset_key,
+            )
+            if preview is None:
+                break
 
-        retry = click.confirm("是否返回重新选择能力与子选项", default=True, show_default=True)
-        if retry:
-            default_option_set = set(selected_option_tuple)
-            default_capabilities = set(selected_tuple)
-            continue
+            fixed_options = apply_auto_fix_preview(selected_option_tuple, preview)
+            _echo_auto_fix_preview(selected_option_tuple, fixed_options, preview)
+            if click.confirm("是否应用上述自动修复建议", default=True, show_default=True):
+                selected_option_tuple = fixed_options
+                selected_tuple = derive_capabilities(selected_option_tuple)
+                click.echo("已应用自动修复，将使用修复后的能力组合继续生成。")
+                break
 
-        raise ValueError(f"{preview.error} 建议：{preview.suggestion}")
+            retry = click.confirm("是否返回重新选择能力与子选项", default=True, show_default=True)
+            if retry:
+                default_option_set = set(selected_option_tuple)
+                default_capabilities = set(selected_tuple)
+                continue
+
+            raise ValueError(f"{preview.error} 建议：{preview.suggestion}")
+    else:
+        selected_option_tuple = default_option_tuple
+        selected_tuple = derive_capabilities(selected_option_tuple)
+        click.echo("将直接使用当前预设的默认模块组合，不再逐项询问 capability / option。")
 
     clear = options.clear
     overwrite = options.overwrite
     target_root = options.destination / slugify(name)
     has_non_empty_target = target_root.exists() and target_root.is_dir() and any(target_root.iterdir())
 
-    _echo_section("配置摘要")
+    _echo_section("第 5 步 · 处理已有目录")
+    if has_non_empty_target:
+        click.echo(f"检测到目标目录已存在且非空：{target_root}")
+        if clear or overwrite:
+            policy = "clear" if clear else "overwrite"
+            click.echo(f"将沿用已显式指定的目录处理策略：{policy}")
+            click.echo(f"- {policy}：{DIRECTORY_POLICY_DESCRIPTIONS[policy]}")
+        else:
+            click.echo("可选处理策略：")
+            for key, description in DIRECTORY_POLICY_DESCRIPTIONS.items():
+                click.echo(f"- {key}：{description}")
+            policy = click.prompt(
+                "目录处理策略",
+                type=click.Choice(("abort", "clear", "overwrite"), case_sensitive=False),
+                default="abort",
+                show_default=True,
+            )
+            if policy == "abort":
+                raise FileExistsError(f"目标目录已存在且非空: {target_root}")
+            clear = policy == "clear"
+            overwrite = policy == "overwrite"
+    else:
+        click.echo(f"目标目录可直接创建：{target_root}")
+
+    _echo_section("第 6 步 · 最终确认")
     click.echo(f"- 项目名称：{name}")
     click.echo(f"- 输出目录：{target_root}")
     click.echo(f"- 预设：{preset.display_name}（{preset.key}）")
     click.echo(f"- 启用能力：{_format_capability_summary(selected_tuple)}")
+    click.echo(f"- 启用子项：{_format_option_summary(selected_option_tuple)}")
+    click.echo(
+        f"- 目录处理策略：{_format_directory_policy_summary(has_non_empty_target=has_non_empty_target, clear=clear, overwrite=overwrite)}"
+    )
+    _echo_next_steps_summary(target_root.name)
 
-    if has_non_empty_target and not (clear or overwrite):
-        _echo_section("第 4 步 · 处理已有目录")
-        click.echo(f"检测到目标目录已存在且非空：{target_root}")
-        click.echo("可选处理策略：")
-        for key, description in DIRECTORY_POLICY_DESCRIPTIONS.items():
-            click.echo(f"- {key}：{description}")
-        policy = click.prompt(
-            "目录处理策略",
-            type=click.Choice(("abort", "clear", "overwrite"), case_sensitive=False),
-            default="abort",
-            show_default=True,
-        )
-        if policy == "abort":
-            raise FileExistsError(f"目标目录已存在且非空: {target_root}")
-        clear = policy == "clear"
-        overwrite = policy == "overwrite"
-
-    if has_non_empty_target and (clear or overwrite) and not options.force:
-        action = "清空目录后重新生成" if clear else "保留目录并覆盖冲突文件"
-        click.echo("这是一个可能覆盖现有内容的操作，请再次确认。")
-        confirmed = click.confirm(
-            f"确认继续执行「{action}」吗",
-            default=False,
-            show_default=True,
-        )
-        if not confirmed:
-            raise FileExistsError(f"已取消生成: {target_root}")
+    if not click.confirm("确认开始生成项目吗", default=True, show_default=True):
+        raise ValueError(f"已取消生成: {target_root}")
 
     selected_set = set(selected_tuple)
     selected_option_set = set(selected_option_tuple)

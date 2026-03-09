@@ -37,9 +37,9 @@ def test_prompt_for_create_options_prints_refined_wizard_copy(
     assert "欢迎使用 option-scaffold 项目创建向导。" in captured
     assert "第 2 步 · 选择策略预设" in captured
     assert "- custom（默认） · Custom: 生成最小自定义策略骨架，按能力逐步补齐。" in captured
-    assert "默认开关已按预设带出；你可以按项目需要逐项微调。" in captured
-    assert "包含：期货主力选择、期权链加载、期权合约选择" in captured
-    assert "配置摘要" in captured
+    assert "第 3 步 · 是否自定义模块" in captured
+    assert "将直接使用当前预设的默认模块组合，不再逐项询问 capability / option。" in captured
+    assert "第 6 步 · 最终确认" in captured
     assert result.name == "alpha_lab"
     assert result.preset == "custom"
     assert result.include_capabilities == (
@@ -47,8 +47,17 @@ def test_prompt_for_create_options_prints_refined_wizard_copy(
         CapabilityKey.MONITORING,
         CapabilityKey.OBSERVABILITY,
     )
-    assert ("是否启用「标的选择」模块", True) in confirm_calls
-    assert ("是否启用子项「决策日志」", True) in confirm_calls
+    assert result.include_options == (
+        CapabilityOptionKey.FUTURE_SELECTION,
+        CapabilityOptionKey.OPTION_CHAIN,
+        CapabilityOptionKey.OPTION_SELECTOR,
+        CapabilityOptionKey.MONITORING,
+        CapabilityOptionKey.DECISION_OBSERVABILITY,
+    )
+    assert ("是否自定义模块", False) in confirm_calls
+    assert ("确认开始生成项目吗", True) in confirm_calls
+    assert not any(text.startswith("是否启用「") for text, _ in confirm_calls)
+    assert not any(text.startswith("是否启用子项「") for text, _ in confirm_calls)
 
 
 def test_prompt_for_create_options_prints_clearer_directory_conflict_copy(
@@ -69,7 +78,7 @@ def test_prompt_for_create_options_prints_clearer_directory_conflict_copy(
         return prompt_answers[text]
 
     def fake_confirm(text: str, default: bool, **_: object) -> bool:
-        if text == "确认继续执行「清空目录后重新生成」吗":
+        if text == "确认开始生成项目吗":
             return True
         return default
 
@@ -80,11 +89,11 @@ def test_prompt_for_create_options_prints_clearer_directory_conflict_copy(
 
     captured = capsys.readouterr().out
 
-    assert "第 4 步 · 处理已有目录" in captured
+    assert "第 5 步 · 处理已有目录" in captured
     assert "检测到目标目录已存在且非空" in captured
     assert "- clear：清空目标目录后重新生成，会删除目录中的现有文件。" in captured
-    assert "这是一个可能覆盖现有内容的操作，请再次确认。" in captured
-    assert "继续确认这个能力组下要落地的子能力：" in captured
+    assert "第 6 步 · 最终确认" in captured
+    assert "- 目录处理策略：clear（清空目标目录后重新生成）" in captured
     assert result.clear is True
     assert result.overwrite is False
 
@@ -128,6 +137,8 @@ def test_prompt_for_create_options_supports_auto_fix_preview(
         return prompt_answers[text]
 
     def fake_confirm(text: str, default: bool, **_: object) -> bool:
+        if text == "是否自定义模块":
+            return True
         if text == "是否启用「对冲能力」模块":
             return True
         if text == "是否启用子项「Delta 对冲」":
@@ -135,6 +146,8 @@ def test_prompt_for_create_options_supports_auto_fix_preview(
         if text == "是否启用子项「Vega 对冲」":
             return False
         if text == "是否应用上述自动修复建议":
+            return True
+        if text == "确认开始生成项目吗":
             return True
         return default
 
@@ -150,3 +163,31 @@ def test_prompt_for_create_options_supports_auto_fix_preview(
     assert CapabilityKey.GREEKS_RISK in result.include_capabilities
     assert CapabilityOptionKey.GREEKS_CALCULATOR in result.include_options
     assert CapabilityOptionKey.DELTA_HEDGING in result.include_options
+
+
+def test_prompt_for_create_options_can_cancel_at_final_confirmation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    prompt_answers = {
+        "项目名称": "alpha_lab",
+        "预设编号": "custom",
+    }
+
+    def fake_prompt(text: str, **_: object) -> str:
+        return prompt_answers[text]
+
+    def fake_confirm(text: str, default: bool, **_: object) -> bool:
+        if text == "确认开始生成项目吗":
+            return False
+        return default
+
+    monkeypatch.setattr(click, "prompt", fake_prompt)
+    monkeypatch.setattr(click, "confirm", fake_confirm)
+
+    try:
+        prompt_for_create_options(CreateOptions(name=None, destination=tmp_path))
+    except ValueError as exc:
+        assert "已取消生成" in str(exc)
+    else:
+        raise AssertionError("expected ValueError when final confirmation is cancelled")

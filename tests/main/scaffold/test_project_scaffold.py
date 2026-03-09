@@ -5,6 +5,7 @@ import tomllib
 
 import pytest
 
+import src.main.scaffold.prompt as prompt_module
 from src.main.scaffold.models import CapabilityKey, CapabilityOptionKey, CreateOptions
 from src.main.scaffold.project import create_project_scaffold
 
@@ -40,6 +41,49 @@ def test_create_project_scaffold_generates_custom_workspace(tmp_path: Path) -> N
     assert config["service_activation"]["future_selection"] is True
     assert config["service_activation"]["monitoring"] is True
     assert config["service_activation"]["pricing_engine"] is False
+
+
+def test_create_project_scaffold_uses_alpha_lab_as_default_name(tmp_path: Path) -> None:
+    plan = create_project_scaffold(
+        CreateOptions(
+            name=None,
+            destination=tmp_path,
+            use_default=True,
+        )
+    )
+
+    project_root = tmp_path / "alpha_lab"
+
+    assert plan.project_name == "alpha_lab"
+    assert plan.project_root == project_root
+    assert project_root.exists()
+
+
+def test_create_project_scaffold_does_not_write_files_when_final_confirmation_cancelled(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    prompt_answers = {
+        "项目名称": "alpha_lab",
+        "预设编号": "custom",
+    }
+
+    def fake_prompt(text: str, **_: object) -> str:
+        return prompt_answers[text]
+
+    def fake_confirm(text: str, default: bool, **_: object) -> bool:
+        if text == "确认开始生成项目吗":
+            return False
+        return default
+
+    monkeypatch.setattr(prompt_module, "supports_interactive_prompt", lambda: True)
+    monkeypatch.setattr("click.prompt", fake_prompt)
+    monkeypatch.setattr("click.confirm", fake_confirm)
+
+    with pytest.raises(ValueError, match="已取消生成"):
+        create_project_scaffold(CreateOptions(name=None, destination=tmp_path))
+
+    assert not (tmp_path / "alpha_lab").exists()
 
 
 @pytest.mark.parametrize(

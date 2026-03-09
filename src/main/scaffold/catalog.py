@@ -18,7 +18,7 @@ from .models import (
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 TEMPLATE_ROOT = REPO_ROOT / "src" / "main" / "scaffold" / "templates" / "presets"
-DEFAULT_PROJECT_NAME = "option_strategy_project"
+DEFAULT_PROJECT_NAME = "alpha_lab"
 DEFAULT_PRESET_KEY = "custom"
 
 CAPABILITY_ORDER: tuple[CapabilityKey, ...] = (
