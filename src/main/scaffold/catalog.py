@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import tomllib
 
+from .config_params import resolve_config_payload
 from .models import (
     AutoFixPreview,
     CapabilityKey,
@@ -478,6 +479,12 @@ def build_scaffold_plan(options: CreateOptions) -> ScaffoldPlan:
         options.include_options,
         options.exclude_options,
     )
+    config_payload, resolved_config_overrides = resolve_config_payload(
+        preset,
+        enabled_options,
+        raw_assignments=options.config_values,
+        overrides=options.config_overrides,
+    )
     capabilities = derive_capabilities(enabled_options)
     service_activation = build_service_activation(enabled_options)
     conflict_policy = DirectoryConflictPolicy.ABORT
@@ -509,4 +516,14 @@ def build_scaffold_plan(options: CreateOptions) -> ScaffoldPlan:
         indicator_class_name=indicator_class_name,
         signal_class_name=signal_class_name,
         base_copy_paths=BASE_COPY_PATHS,
+        strategy_settings=dict(config_payload["setting"]),
+        runtime_config=dict(config_payload["runtime"]),
+        observability_config=dict(config_payload["observability"]),
+        position_sizing_config=dict(config_payload["position_sizing"]),
+        greeks_risk_config=dict(config_payload["greeks_risk"]),
+        order_execution_config=dict(config_payload["order_execution"]),
+        advanced_orders_config=dict(config_payload["advanced_orders"]),
+        hedging_config=dict(config_payload["hedging"]),
+        indicator_kwargs=dict(config_payload["indicator_kwargs"]),
+        signal_kwargs=dict(config_payload["signal_kwargs"]),
     )

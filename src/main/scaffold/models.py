@@ -1,5 +1,3 @@
-"""整仓库脚手架数据模型。"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -47,6 +45,14 @@ class DirectoryConflictPolicy(str, Enum):
 
 
 @dataclass(frozen=True)
+class ConfigOverride:
+    """创建时的配置参数覆盖。"""
+
+    key: str
+    value: object
+
+
+@dataclass(frozen=True)
 class CreateOptions:
     """`option-scaffold create` 输入参数。"""
 
@@ -62,6 +68,8 @@ class CreateOptions:
     force: bool = False
     clear: bool = False
     overwrite: bool = False
+    config_values: tuple[str, ...] = ()
+    config_overrides: tuple[ConfigOverride, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -81,7 +89,7 @@ class ScaffoldPreset:
 
 @dataclass(frozen=True)
 class ScaffoldPlan:
-    """渲染整仓库脚手架所需的完整计划。"""
+    """渲染整个仓库脚手架所需的完整计划。"""
 
     project_name: str
     project_slug: str
@@ -95,6 +103,16 @@ class ScaffoldPlan:
     indicator_class_name: str
     signal_class_name: str
     base_copy_paths: tuple[str, ...]
+    strategy_settings: dict[str, object]
+    runtime_config: dict[str, object]
+    observability_config: dict[str, object]
+    position_sizing_config: dict[str, object]
+    greeks_risk_config: dict[str, object]
+    order_execution_config: dict[str, object]
+    advanced_orders_config: dict[str, object]
+    hedging_config: dict[str, object]
+    indicator_kwargs: dict[str, object]
+    signal_kwargs: dict[str, object]
 
     @property
     def strategy_package_dir(self) -> Path:

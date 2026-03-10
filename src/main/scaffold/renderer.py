@@ -1,6 +1,4 @@
-"""整仓库脚手架渲染层。"""
-
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from pathlib import Path
@@ -8,7 +6,7 @@ import shutil
 from textwrap import dedent
 
 from .catalog import REPO_ROOT, capability_label, capability_option_label, get_capability_options
-from .models import CapabilityKey, CapabilityOptionKey, DirectoryConflictPolicy, ScaffoldPlan
+from .models import DirectoryConflictPolicy, ScaffoldPlan
 from .next_steps import build_next_step_commands
 
 COPY_IGNORE = shutil.ignore_patterns(
@@ -53,7 +51,7 @@ def _prepare_target_directory(plan: ScaffoldPlan) -> None:
     if plan.conflict_policy == DirectoryConflictPolicy.OVERWRITE:
         return
     raise FileExistsError(
-        f"目标目录已存在且非空: {target}。请使用 `--clear` 或 `--overwrite`，或改用交互模式。"
+        f"目标目录已存在且非空: {target}。请使用 `--clear`、`--overwrite`，或改用交互模式。"
     )
 
 
@@ -82,11 +80,6 @@ def _render_key_values(section: dict[str, object]) -> str:
     return "\n".join(f"{key} = {_toml_scalar(value)}" for key, value in section.items())
 
 
-def _has_option(plan: ScaffoldPlan, *options: CapabilityOptionKey) -> bool:
-    enabled = set(plan.enabled_options)
-    return any(option in enabled for option in options)
-
-
 def _render_grouped_capabilities(plan: ScaffoldPlan) -> str:
     lines: list[str] = []
     enabled = set(plan.enabled_options)
@@ -103,156 +96,107 @@ def _render_grouped_capabilities(plan: ScaffoldPlan) -> str:
     return "\n".join(lines)
 
 
+def _render_toml_table(table_name: str, section: dict[str, object]) -> str:
+    scalar_section = {
+        key: value
+        for key, value in section.items()
+        if not isinstance(value, dict) and not isinstance(value, list)
+    }
+    nested_sections = {
+        key: value
+        for key, value in section.items()
+        if isinstance(value, dict)
+    }
+    array_sections = {
+        key: value
+        for key, value in section.items()
+        if isinstance(value, list)
+    }
+
+    blocks: list[str] = []
+    if scalar_section:
+        blocks.append(f"[{table_name}]\n{_render_key_values(scalar_section)}")
+
+    for key, value in nested_sections.items():
+        blocks.append(_render_toml_table(f"{table_name}.{key}", value))
+
+    for key, items in array_sections.items():
+        for item in items:
+            blocks.append(f"[[{table_name}.{key}]]\n{_render_key_values(item)}")
+
+    return "\n\n".join(block for block in blocks if block.strip())
+
+
 def _render_strategy_contract(plan: ScaffoldPlan) -> str:
-    indicator_kwargs = _render_key_values(plan.preset.indicator_kwargs)
-    signal_kwargs = _render_key_values(plan.preset.signal_kwargs)
-    service_activation = _render_key_values(plan.service_activation)
-    observability = ""
-    if _has_option(plan, CapabilityOptionKey.DECISION_OBSERVABILITY):
-        observability = dedent(
-            """
-            [observability]
-            decision_journal_maxlen = 200
-            emit_noop_decisions = false
-            """
+    blocks = [
+        dedent(
+            f'''
+            [strategy_contracts]
+            indicator_service = "{plan.indicator_import_path}"
+            signal_service = "{plan.signal_import_path}"
+
+            [strategy_contracts.indicator_kwargs]
+            {_render_key_values(plan.indicator_kwargs)}
+
+            [strategy_contracts.signal_kwargs]
+            {_render_key_values(plan.signal_kwargs)}
+
+            [service_activation]
+            {_render_key_values(plan.service_activation)}
+            '''
         ).strip()
-
-    content = f'''
-    [strategy_contracts]
-    indicator_service = "{plan.indicator_import_path}"
-    signal_service = "{plan.signal_import_path}"
-
-    [strategy_contracts.indicator_kwargs]
-    {indicator_kwargs}
-
-    [strategy_contracts.signal_kwargs]
-    {signal_kwargs}
-
-    [service_activation]
-    {service_activation}
-    '''
-    if observability:
-        content = f"{content.strip()}\n\n{observability}\n"
-    return dedent(content).strip() + "\n"
+    ]
+    if plan.observability_config:
+        blocks.append(_render_toml_table("observability", plan.observability_config))
+    return "\n\n".join(block for block in blocks if block.strip()) + "\n"
 
 
 def _render_strategy_config(plan: ScaffoldPlan) -> str:
     blocks: list[str] = [
-        f'''
-        [[strategies]]
-        class_name = "StrategyEntry"
-        strategy_name = "{plan.project_slug}"
-        vt_symbols = []
+        dedent(
+            f'''
+            [[strategies]]
+            class_name = "StrategyEntry"
+            strategy_name = "{plan.project_slug}"
+            vt_symbols = []
 
-        [strategies.setting]
-        max_positions = 5
-        position_ratio = 0.1
-        strike_level = 3
-        bar_window = 1
-        bar_interval = "MINUTE"
+            [strategies.setting]
+            {_render_key_values(plan.strategy_settings)}
 
-        [strategy_contracts]
-        indicator_service = "{plan.indicator_import_path}"
-        signal_service = "{plan.signal_import_path}"
+            [strategy_contracts]
+            indicator_service = "{plan.indicator_import_path}"
+            signal_service = "{plan.signal_import_path}"
 
-        [strategy_contracts.indicator_kwargs]
-        {_render_key_values(plan.preset.indicator_kwargs)}
+            [strategy_contracts.indicator_kwargs]
+            {_render_key_values(plan.indicator_kwargs)}
 
-        [strategy_contracts.signal_kwargs]
-        {_render_key_values(plan.preset.signal_kwargs)}
+            [strategy_contracts.signal_kwargs]
+            {_render_key_values(plan.signal_kwargs)}
 
-        [service_activation]
-        {_render_key_values(plan.service_activation)}
+            [service_activation]
+            {_render_key_values(plan.service_activation)}
 
-        [runtime]
-        log_level = "INFO"
-        log_dir = "data/logs"
-        heartbeat_interval = 60
-        max_restart_count = 10
-        restart_delay = 5.0
-        '''
+            [runtime]
+            {_render_key_values(plan.runtime_config)}
+            '''
+        ).strip()
     ]
 
-    if _has_option(plan, CapabilityOptionKey.DECISION_OBSERVABILITY):
-        blocks.append(
-            '''
-            [observability]
-            decision_journal_maxlen = 200
-            emit_noop_decisions = false
-            '''
-        )
-    if _has_option(plan, CapabilityOptionKey.POSITION_SIZING):
-        blocks.append(
-            '''
-            [position_sizing]
-            margin_ratio = 0.12
-            min_margin_ratio = 0.07
-            margin_usage_limit = 0.6
-            max_volume_per_order = 10
-            '''
-        )
-    if _has_option(plan, CapabilityOptionKey.GREEKS_CALCULATOR, CapabilityOptionKey.PORTFOLIO_RISK):
-        blocks.append(
-            '''
-            [greeks_risk]
-            risk_free_rate = 0.02
+    if plan.observability_config:
+        blocks.append(_render_toml_table("observability", plan.observability_config))
+    if plan.position_sizing_config:
+        blocks.append(_render_toml_table("position_sizing", plan.position_sizing_config))
+    if plan.greeks_risk_config:
+        blocks.append(_render_toml_table("greeks_risk", plan.greeks_risk_config))
+    if plan.order_execution_config:
+        blocks.append(_render_toml_table("order_execution", plan.order_execution_config))
+    if plan.advanced_orders_config:
+        blocks.append(_render_toml_table("advanced_orders", plan.advanced_orders_config))
+    if plan.hedging_config:
+        for key, value in plan.hedging_config.items():
+            blocks.append(_render_toml_table(f"hedging.{key}", value))
 
-            [greeks_risk.position_limits]
-            delta = 0.8
-            gamma = 0.1
-            vega = 50.0
-
-            [greeks_risk.portfolio_limits]
-            delta = 5.0
-            gamma = 1.0
-            vega = 500.0
-            '''
-        )
-    if _has_option(plan, CapabilityOptionKey.SMART_ORDER_EXECUTOR, CapabilityOptionKey.ADVANCED_ORDER_SCHEDULER):
-        blocks.append(
-            '''
-            [order_execution]
-            timeout_seconds = 30
-            max_retries = 3
-            slippage_ticks = 2
-
-            [[order_execution.trading_periods]]
-            start = "08:40"
-            end = "11:30"
-
-            [[order_execution.trading_periods]]
-            start = "13:00"
-            end = "15:30"
-
-            [advanced_orders]
-            default_iceberg_batch_size = 5
-            default_twap_slices = 10
-            default_time_window_seconds = 300
-            '''
-        )
-    if _has_option(plan, CapabilityOptionKey.DELTA_HEDGING, CapabilityOptionKey.VEGA_HEDGING):
-        blocks.append(
-            '''
-            [hedging.delta_hedging]
-            target_delta = 0.0
-            hedging_band = 0.5
-            hedge_instrument_vt_symbol = ""
-            hedge_instrument_delta = 1.0
-            hedge_instrument_multiplier = 10.0
-
-            [hedging.vega_hedging]
-            target_vega = 0.0
-            hedging_band = 50.0
-            hedge_instrument_vt_symbol = ""
-            hedge_instrument_vega = 0.1
-            hedge_instrument_delta = 0.5
-            hedge_instrument_gamma = 0.01
-            hedge_instrument_theta = -0.05
-            hedge_instrument_multiplier = 10.0
-            '''
-        )
-
-    return "\n\n".join(dedent(block).strip() for block in blocks if block.strip()) + "\n"
+    return "\n\n".join(block for block in blocks if block.strip()) + "\n"
 
 
 def _render_project_pyproject(plan: ScaffoldPlan) -> str:
@@ -322,19 +266,19 @@ def _render_root_readme(plan: ScaffoldPlan) -> str:
 
         ## 下一步
 
-        1. 进入项目目录：
+        1. 进入项目目录
 
            ```powershell
            {next_step_commands[0]}
            ```
 
-        2. 校验配置与合同绑定：
+        2. 校验主配置与契约绑定
 
            ```powershell
            {next_step_commands[1]}
            ```
 
-        3. 运行最小策略：
+        3. 启动最小运行链路
 
            ```powershell
            {next_step_commands[2]}
@@ -431,7 +375,10 @@ def _load_template_text(path: Path) -> str:
 
 def _render_strategy_package_readme(plan: ScaffoldPlan) -> str:
     if plan.preset.template_dir is None:
-        content = f"# {plan.strategy_slug}\n\n自定义最小策略模板，适合从零开始补齐指标、信号与能力配置。\n"
+        content = (
+            f"# {plan.strategy_slug}\n\n"
+            "自定义最小策略模板，适合从零开始补齐指标、信号与能力配置。\n"
+        )
     else:
         content = _load_template_text(plan.preset.template_dir / "README.md")
         first_line = content.splitlines()[0] if content.splitlines() else ""
@@ -501,7 +448,7 @@ def _render_project_tests(plan: ScaffoldPlan) -> None:
 
 
 def render_scaffold_plan(plan: ScaffoldPlan) -> Path:
-    """执行整仓库脚手架渲染。"""
+    """执行整个仓库脚手架渲染。"""
     _prepare_target_directory(plan)
     _copy_base_assets(plan)
     _write(plan.project_root / "pyproject.toml", _render_project_pyproject(plan))

@@ -1,6 +1,4 @@
-"""统一 CLI 应用入口。"""
-
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 import sys
@@ -21,6 +19,7 @@ from src.cli.commands.create import (
     CREATE_NO_INTERACTIVE_HELP,
     CREATE_OVERWRITE_HELP,
     CREATE_PRESET_HELP,
+    CREATE_SET_HELP,
     CREATE_WITH_HELP,
     CREATE_WITH_OPTION_HELP,
     CREATE_WITHOUT_HELP,
@@ -71,6 +70,7 @@ def _run_main_menu_action(choice: int) -> None:
             without=(),
             with_option=(),
             without_option=(),
+            set_values=(),
             force="",
             clear="",
             overwrite="",
@@ -130,57 +130,70 @@ def app(ctx: click.Context) -> None:
     "--with",
     "with_",
     multiple=True,
-    type=click.Choice(["selection", "position-sizing", "pricing", "greeks-risk", "execution", "hedging", "monitoring", "observability"], case_sensitive=False),
+    type=click.Choice(
+        ["selection", "position-sizing", "pricing", "greeks-risk", "execution", "hedging", "monitoring", "observability"],
+        case_sensitive=False,
+    ),
     help=CREATE_WITH_HELP,
 )
 @click.option(
     "--without",
     multiple=True,
-    type=click.Choice(["selection", "position-sizing", "pricing", "greeks-risk", "execution", "hedging", "monitoring", "observability"], case_sensitive=False),
+    type=click.Choice(
+        ["selection", "position-sizing", "pricing", "greeks-risk", "execution", "hedging", "monitoring", "observability"],
+        case_sensitive=False,
+    ),
     help=CREATE_WITHOUT_HELP,
 )
 @click.option(
     "--with-option",
     "with_option",
     multiple=True,
-    type=click.Choice([
-        "future-selection",
-        "option-chain",
-        "option-selector",
-        "position-sizing",
-        "pricing-engine",
-        "greeks-calculator",
-        "portfolio-risk",
-        "smart-order-executor",
-        "advanced-order-scheduler",
-        "delta-hedging",
-        "vega-hedging",
-        "monitoring",
-        "decision-observability",
-    ], case_sensitive=False),
+    type=click.Choice(
+        [
+            "future-selection",
+            "option-chain",
+            "option-selector",
+            "position-sizing",
+            "pricing-engine",
+            "greeks-calculator",
+            "portfolio-risk",
+            "smart-order-executor",
+            "advanced-order-scheduler",
+            "delta-hedging",
+            "vega-hedging",
+            "monitoring",
+            "decision-observability",
+        ],
+        case_sensitive=False,
+    ),
     help=CREATE_WITH_OPTION_HELP,
 )
 @click.option(
     "--without-option",
     "without_option",
     multiple=True,
-    type=click.Choice([
-        "future-selection",
-        "option-chain",
-        "option-selector",
-        "position-sizing",
-        "pricing-engine",
-        "greeks-calculator",
-        "portfolio-risk",
-        "smart-order-executor",
-        "advanced-order-scheduler",
-        "delta-hedging",
-        "vega-hedging",
-        "monitoring",
-        "decision-observability",
-    ], case_sensitive=False),
+    type=click.Choice(
+        [
+            "future-selection",
+            "option-chain",
+            "option-selector",
+            "position-sizing",
+            "pricing-engine",
+            "greeks-calculator",
+            "portfolio-risk",
+            "smart-order-executor",
+            "advanced-order-scheduler",
+            "delta-hedging",
+            "vega-hedging",
+            "monitoring",
+            "decision-observability",
+        ],
+        case_sensitive=False,
+    ),
     help=CREATE_WITHOUT_OPTION_HELP,
 )
+@click.option("--set", "set_values", multiple=True, help=CREATE_SET_HELP)
 @click.option("--force", is_flag=True, help=CREATE_FORCE_HELP)
 @click.option("--clear", is_flag=True, help=CREATE_CLEAR_HELP)
 @click.option("--overwrite", is_flag=True, help=CREATE_OVERWRITE_HELP)
@@ -194,6 +207,7 @@ def create_click(
     without: tuple[str, ...],
     with_option: tuple[str, ...],
     without_option: tuple[str, ...],
+    set_values: tuple[str, ...],
     force: bool,
     clear: bool,
     overwrite: bool,
@@ -208,6 +222,7 @@ def create_click(
         without=tuple(without),
         with_option=tuple(with_option),
         without_option=tuple(without_option),
+        set_values=tuple(set_values),
         force="1" if force else "",
         clear="1" if clear else "",
         overwrite="1" if overwrite else "",
@@ -216,7 +231,7 @@ def create_click(
     )
 
 
-@app.command("init", help="生成策略开发骨架。")
+@app.command("init", help="生成单策略开发骨架。")
 @click.argument("name")
 @click.option(
     "--destination",
@@ -231,20 +246,20 @@ def init_click(name: str, destination: Path, force: bool) -> None:
     init_command(name=name, destination=destination, force="1" if force else "")
 
 
-@app.command("run", help="运行策略主程序。")
+@app.command("run", help="启动策略主程序。")
 @click.option(
     "--mode",
-    type=click.Choice([member.value for member in RunMode], case_sensitive=True),
+    type=click.Choice([item.value for item in RunMode], case_sensitive=False),
     default=RunMode.standalone.value,
     show_default=True,
-    help="运行模式：standalone 或 daemon。",
+    help="运行模式，可选 standalone 或 daemon。",
 )
 @click.option(
     "--config",
     type=click.Path(path_type=Path, dir_okay=False),
     default=Path("config/strategy_config.toml"),
     show_default=True,
-    help="策略配置文件路径。",
+    help="策略主配置文件路径。",
 )
 @click.option(
     "--override-config",
@@ -254,7 +269,7 @@ def init_click(name: str, destination: Path, force: bool) -> None:
 )
 @click.option(
     "--log-level",
-    type=click.Choice([member.value for member in LogLevel], case_sensitive=True),
+    type=click.Choice([item.value for item in LogLevel], case_sensitive=False),
     default=LogLevel.info.value,
     show_default=True,
     help="日志级别。",
@@ -288,7 +303,7 @@ def run_click(
     )
 
 
-@app.command("backtest", help="运行组合策略回测。")
+@app.command("backtest", help="启动回测入口。")
 @click.option("--config", type=click.Path(path_type=Path, dir_okay=False), default=None, help="策略配置文件路径。")
 @click.option("--start", default=None, help="开始日期，格式 YYYY-MM-DD。")
 @click.option("--end", default=None, help="结束日期，格式 YYYY-MM-DD。")
@@ -328,7 +343,7 @@ def backtest_click(
     type=click.Path(path_type=Path, dir_okay=False),
     default=Path("config/strategy_config.toml"),
     show_default=True,
-    help="策略配置文件路径。",
+    help="策略主配置文件路径。",
 )
 @click.option(
     "--override-config",
@@ -336,14 +351,14 @@ def backtest_click(
     default=None,
     help="可选的覆盖配置文件路径。",
 )
-@click.option("--start", default=None, help="可选的回测开始日期，格式 YYYY-MM-DD。")
-@click.option("--end", default=None, help="可选的回测结束日期，格式 YYYY-MM-DD。")
-@click.option("--capital", type=int, default=None, help="可选的回测初始资金覆盖值。")
-@click.option("--rate", type=float, default=None, help="可选的回测手续费率覆盖值。")
-@click.option("--slippage", type=float, default=None, help="可选的回测滑点覆盖值。")
-@click.option("--size", type=int, default=None, help="可选的回测合约乘数覆盖值。")
-@click.option("--pricetick", type=float, default=None, help="可选的回测最小价格变动覆盖值。")
-@click.option("--no-chart", is_flag=True, help="按回测命令语义校验图表开关。")
+@click.option("--start", default=None, help="可选回测开始日期，格式 YYYY-MM-DD。")
+@click.option("--end", default=None, help="可选回测结束日期，格式 YYYY-MM-DD。")
+@click.option("--capital", type=int, default=None, help="可选回测初始资金。")
+@click.option("--rate", type=float, default=None, help="可选回测手续费率。")
+@click.option("--slippage", type=float, default=None, help="可选回测滑点。")
+@click.option("--size", type=int, default=None, help="可选回测合约乘数。")
+@click.option("--pricetick", type=float, default=None, help="可选回测最小价格变动。")
+@click.option("--no-chart", is_flag=True, help="校验时按回测语义处理图表开关。")
 def validate_click(
     config: Path,
     override_config: Path | None,
@@ -370,17 +385,17 @@ def validate_click(
     )
 
 
-@app.command("doctor", help="诊断本地 CLI 环境、配置文件与运行依赖。")
+@app.command("examples", help="查看内置示例。")
+@click.argument("name", required=False)
+def examples_click(name: str | None) -> None:
+    examples_command(name=name)
+
+
+@app.command("doctor", help="诊断本地 CLI 环境与依赖。")
 @click.option("--strict", is_flag=True, help="将警告也视为失败。")
 @click.option("--check-db", is_flag=True, help="额外尝试连接数据库并执行 SELECT 1。")
 def doctor_click(strict: bool, check_db: bool) -> None:
     doctor_command(strict="1" if strict else "", check_db="1" if check_db else "")
-
-
-@app.command("examples", help="列出内置示例，或查看某个示例的说明。")
-@click.argument("name", required=False)
-def examples_click(name: str | None) -> None:
-    examples_command(name=name)
 
 
 _original_get_command = typer_main.get_command

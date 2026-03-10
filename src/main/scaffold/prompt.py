@@ -1,8 +1,7 @@
-"""整仓库脚手架交互式提问层。"""
-
 from __future__ import annotations
 
 import sys
+from collections import OrderedDict
 
 import click
 
@@ -21,7 +20,18 @@ from .catalog import (
     resolve_capability_options,
     slugify,
 )
-from .models import CapabilityKey, CapabilityOptionKey, CreateOptions
+from .config_params import (
+    CONFIG_GROUP_TITLES,
+    ConfigParamSchema,
+    ConfigValueType,
+    apply_config_overrides,
+    build_available_config_param_schemas,
+    build_default_config_payload,
+    format_config_value,
+    get_config_value,
+    parse_config_assignments,
+)
+from .models import CapabilityKey, CapabilityOptionKey, ConfigOverride, CreateOptions
 from .next_steps import build_next_step_commands
 
 
@@ -49,10 +59,7 @@ def _echo_section(title: str) -> None:
 
 
 def _format_capability_options(capability: CapabilityKey) -> str:
-    return "、".join(
-        capability_option_label(option)
-        for option in get_capability_options(capability)
-    )
+    return "、".join(capability_option_label(option) for option in get_capability_options(capability))
 
 
 def _format_capability_summary(capabilities: tuple[CapabilityKey, ...]) -> str:
@@ -67,12 +74,7 @@ def _format_option_summary(options: tuple[CapabilityOptionKey, ...]) -> str:
     return "、".join(capability_option_label(item) for item in options)
 
 
-def _format_directory_policy_summary(
-    *,
-    has_non_empty_target: bool,
-    clear: bool,
-    overwrite: bool,
-) -> str:
+def _format_directory_policy_summary(*, has_non_empty_target: bool, clear: bool, overwrite: bool) -> str:
     if not has_non_empty_target:
         return "新建目录（目标目录为空，可直接生成）"
     if clear:
@@ -124,7 +126,11 @@ def _collect_capability_selection(
     return tuple(selected), tuple(selected_options)
 
 
-def _echo_auto_fix_preview(selected_options: tuple[CapabilityOptionKey, ...], fixed_options: tuple[CapabilityOptionKey, ...], preview) -> None:
+def _echo_auto_fix_preview(
+    selected_options: tuple[CapabilityOptionKey, ...],
+    fixed_options: tuple[CapabilityOptionKey, ...],
+    preview,
+) -> None:
     _echo_section("自动修复预览")
     click.echo(f"- 问题：{preview.error}")
     if preview.add_options:
@@ -133,6 +139,81 @@ def _echo_auto_fix_preview(selected_options: tuple[CapabilityOptionKey, ...], fi
         click.echo(f"- 将自动关闭：{_format_option_summary(preview.remove_options)}")
     click.echo(f"- 修复后子选项：{_format_option_summary(fixed_options)}")
     click.echo(f"- 修复建议：{preview.suggestion}")
+
+
+def _click_prompt_type(schema: ConfigParamSchema):
+    if schema.value_type == ConfigValueType.BOOL:
+        return click.BOOL
+    if schema.value_type == ConfigValueType.INT:
+        return int
+    if schema.value_type == ConfigValueType.FLOAT:
+        return float
+    if schema.value_type == ConfigValueType.CHOICE:
+        return click.Choice(schema.choices, case_sensitive=False)
+    return str
+
+
+def _group_schemas(
+    schemas: tuple[ConfigParamSchema, ...],
+) -> OrderedDict[str, OrderedDict[str, list[ConfigParamSchema]]]:
+    grouped: OrderedDict[str, OrderedDict[str, list[ConfigParamSchema]]] = OrderedDict()
+    for group_key in ("core", "runtime", "module", "preset"):
+        section_map: OrderedDict[str, list[ConfigParamSchema]] = OrderedDict()
+        for schema in schemas:
+            if schema.group != group_key:
+                continue
+            section_map.setdefault(schema.section_label, []).append(schema)
+        if section_map:
+            grouped[group_key] = section_map
+    return grouped
+
+
+def _prompt_for_config_overrides(
+    preset_key: str,
+    selected_options: tuple[CapabilityOptionKey, ...],
+    seed_assignments: tuple[str, ...],
+) -> tuple[ConfigOverride, ...]:
+    preset = get_preset(preset_key)
+    seed_overrides = parse_config_assignments(seed_assignments, preset, selected_options) if seed_assignments else ()
+    payload = apply_config_overrides(build_default_config_payload(preset, selected_options), seed_overrides)
+    schemas = build_available_config_param_schemas(preset, selected_options)
+    if not schemas:
+        click.echo("当前预设与能力组合没有可自定义的标量配置参数，将沿用模板默认值。")
+        return ()
+
+    click.echo("将按『核心策略设置 / 运行时配置 / 已启用模块配置 / Preset 参数』依次确认。")
+    if seed_overrides:
+        click.echo("检测到已传入 --set，以下问题会以这些值作为默认值。")
+
+    prompted: list[ConfigOverride] = []
+    grouped = _group_schemas(schemas)
+    for group_key, section_map in grouped.items():
+        click.echo(f"- {CONFIG_GROUP_TITLES[group_key]}")
+        for section_label, section_schemas in section_map.items():
+            click.echo(f"  - {section_label}")
+            for schema in section_schemas:
+                default_value = get_config_value(payload, schema.key)
+                if schema.description:
+                    click.echo(f"    - {schema.description}")
+                prompted_value = click.prompt(
+                    f"    {schema.label}",
+                    default=default_value,
+                    show_default=True,
+                    type=_click_prompt_type(schema),
+                )
+                prompted.append(ConfigOverride(key=schema.key, value=prompted_value))
+                payload = apply_config_overrides(payload, (ConfigOverride(key=schema.key, value=prompted_value),))
+
+    return tuple(prompted)
+
+
+def _echo_config_override_summary(config_overrides: tuple[ConfigOverride, ...]) -> None:
+    if not config_overrides:
+        click.echo("- 配置参数：沿用模板默认值")
+        return
+    click.echo(f"- 配置参数：已确认 {len(config_overrides)} 项")
+    for override in config_overrides:
+        click.echo(f"  - {override.key} = {format_config_value(override.value)}")
 
 
 def supports_interactive_prompt() -> bool:
@@ -145,6 +226,9 @@ def should_prompt_for_create(options: CreateOptions) -> bool:
     if options.no_interactive or options.use_default or not supports_interactive_prompt():
         return False
 
+    if options.config_values:
+        return True
+
     if not options.name or not options.preset:
         return True
 
@@ -153,6 +237,7 @@ def should_prompt_for_create(options: CreateOptions) -> bool:
         or options.exclude_capabilities
         or options.include_options
         or options.exclude_options
+        or options.config_overrides
     )
     target_root = options.destination / slugify(options.name)
     has_non_empty_target = target_root.exists() and target_root.is_dir() and any(target_root.iterdir())
@@ -162,7 +247,7 @@ def should_prompt_for_create(options: CreateOptions) -> bool:
 def prompt_for_create_options(options: CreateOptions) -> CreateOptions:
     """收集 create 命令所需的交互式选择。"""
     click.echo("欢迎使用 option-scaffold 项目创建向导。")
-    click.echo("接下来会依次确认项目名称、策略预设、模块定制方式、目录处理方式与最终确认。")
+    click.echo("接下来会依次确认项目名称、策略预设、模块定制、配置参数、目录处理方式与最终确认。")
     click.echo("带默认值的问题可直接回车接受默认配置。")
 
     _echo_section("第 1 步 · 项目命名")
@@ -215,10 +300,7 @@ def prompt_for_create_options(options: CreateOptions) -> CreateOptions:
                 default_option_set,
             )
 
-            preview = build_enabled_options_auto_fix_preview(
-                selected_option_tuple,
-                preset_key=preset_key,
-            )
+            preview = build_enabled_options_auto_fix_preview(selected_option_tuple, preset_key=preset_key)
             if preview is None:
                 break
 
@@ -242,12 +324,29 @@ def prompt_for_create_options(options: CreateOptions) -> CreateOptions:
         selected_tuple = derive_capabilities(selected_option_tuple)
         click.echo("将直接使用当前预设的默认模块组合，不再逐项询问 capability / option。")
 
+    _echo_section("第 5 步 · 是否自定义配置参数")
+    if options.config_values:
+        click.echo("检测到命令行已传入 --set，将自动进入配置参数确认步骤。")
+        customize_config = True
+    else:
+        customize_config = click.confirm("是否自定义配置参数", default=False, show_default=True)
+
+    config_overrides: tuple[ConfigOverride, ...] = ()
+    if customize_config:
+        config_overrides = _prompt_for_config_overrides(
+            preset_key,
+            selected_option_tuple,
+            options.config_values,
+        )
+    else:
+        click.echo("将沿用模板默认配置参数，不再逐项询问。")
+
     clear = options.clear
     overwrite = options.overwrite
     target_root = options.destination / slugify(name)
     has_non_empty_target = target_root.exists() and target_root.is_dir() and any(target_root.iterdir())
 
-    _echo_section("第 5 步 · 处理已有目录")
+    _echo_section("第 6 步 · 处理已有目录")
     if has_non_empty_target:
         click.echo(f"检测到目标目录已存在且非空：{target_root}")
         if clear or overwrite:
@@ -271,19 +370,20 @@ def prompt_for_create_options(options: CreateOptions) -> CreateOptions:
     else:
         click.echo(f"目标目录可直接创建：{target_root}")
 
-    _echo_section("第 6 步 · 最终确认")
+    _echo_section("第 7 步 · 最终确认")
     click.echo(f"- 项目名称：{name}")
     click.echo(f"- 输出目录：{target_root}")
     click.echo(f"- 预设：{preset.display_name}（{preset.key}）")
     click.echo(f"- 启用能力：{_format_capability_summary(selected_tuple)}")
     click.echo(f"- 启用子项：{_format_option_summary(selected_option_tuple)}")
+    _echo_config_override_summary(config_overrides)
     click.echo(
         f"- 目录处理策略：{_format_directory_policy_summary(has_non_empty_target=has_non_empty_target, clear=clear, overwrite=overwrite)}"
     )
     _echo_next_steps_summary(target_root.name)
 
     if not click.confirm("确认开始生成项目吗", default=True, show_default=True):
-        raise ValueError(f"已取消生成: {target_root}")
+        raise ValueError(f"已取消生成 {target_root}")
 
     selected_set = set(selected_tuple)
     selected_option_set = set(selected_option_tuple)
@@ -301,4 +401,6 @@ def prompt_for_create_options(options: CreateOptions) -> CreateOptions:
         force=options.force,
         clear=clear,
         overwrite=overwrite,
+        config_values=(),
+        config_overrides=config_overrides,
     )

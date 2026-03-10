@@ -1,5 +1,3 @@
-"""整仓库脚手架创建命令。"""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -23,7 +21,9 @@ CREATE_COMMAND_EXAMPLES = (
     "  预设模板\n"
     "    option-scaffold create alpha_lab --preset ema-cross -d .\\projects\n"
     "  精细能力控制\n"
-    "    option-scaffold create alpha_lab --preset custom --with hedging --with-option vega-hedging --no-interactive"
+    "    option-scaffold create alpha_lab --preset custom --with hedging --with-option vega-hedging --no-interactive\n"
+    "  非交互配置参数\n"
+    "    option-scaffold create alpha_lab --preset ema-cross --set setting.max_positions=8 --set signal_kwargs.option_type=put --no-interactive"
 )
 CREATE_NAME_HELP = "项目名称；省略时会进入交互式向导询问。"
 CREATE_DESTINATION_HELP = "项目输出父目录；最终会生成到 <destination>/<name>/。"
@@ -32,11 +32,12 @@ CREATE_WITH_HELP = "按能力组显式开启功能，可重复传入；适合非
 CREATE_WITHOUT_HELP = "按能力组显式关闭功能，可重复传入；适合在预设基础上做裁剪。"
 CREATE_WITH_OPTION_HELP = "按二级子能力显式开启，可重复传入；用于更细粒度定制。"
 CREATE_WITHOUT_OPTION_HELP = "按二级子能力显式关闭，可重复传入；用于更细粒度裁剪。"
+CREATE_SET_HELP = "覆盖生成时的配置参数，使用 key=value 形式，可重复传入；例如 setting.max_positions=8。"
 CREATE_FORCE_HELP = "跳过目录覆盖类操作的二次确认；仅在确认目标目录可被修改时使用。"
 CREATE_CLEAR_HELP = "目标目录非空时先清空再生成；会删除目录中的现有文件。"
 CREATE_OVERWRITE_HELP = "目标目录非空时保留目录，仅覆盖本次生成的同名冲突文件。"
-CREATE_DEFAULT_HELP = "跳过提问，直接使用默认预设与默认能力组合生成。"
-CREATE_NO_INTERACTIVE_HELP = "禁用交互向导；仅按显式 flags 与默认规则执行。"
+CREATE_DEFAULT_HELP = "跳过提问，直接使用默认预设、默认能力和传入的 --set 生成。"
+CREATE_NO_INTERACTIVE_HELP = "禁用交互向导；仅按显式 flags、--set 与默认规则执行。"
 
 
 def _to_capabilities(values: Iterable[str]) -> tuple[CapabilityKey, ...]:
@@ -55,6 +56,7 @@ def command(
     without: tuple[str, ...] = typer.Option((), "--without", help=CREATE_WITHOUT_HELP),
     with_option: tuple[str, ...] = typer.Option((), "--with-option", help=CREATE_WITH_OPTION_HELP),
     without_option: tuple[str, ...] = typer.Option((), "--without-option", help=CREATE_WITHOUT_OPTION_HELP),
+    set_values: tuple[str, ...] = typer.Option((), "--set", help=CREATE_SET_HELP),
     force: str = typer.Option("", "--force", flag_value="1", show_default=False, help=CREATE_FORCE_HELP),
     clear: str = typer.Option("", "--clear", flag_value="1", show_default=False, help=CREATE_CLEAR_HELP),
     overwrite: str = typer.Option("", "--overwrite", flag_value="1", show_default=False, help=CREATE_OVERWRITE_HELP),
@@ -77,6 +79,7 @@ def command(
                 force=flag_enabled(force),
                 clear=flag_enabled(clear),
                 overwrite=flag_enabled(overwrite),
+                config_values=tuple(set_values),
             )
         )
     except (FileExistsError, ValueError) as exc:
@@ -87,5 +90,5 @@ def command(
     typer.echo(f"- 策略包：src/strategies/{plan.strategy_slug}")
     typer.echo(f"- 主配置：{display_path(plan.project_root / 'config' / 'strategy_config.toml')}")
     typer.echo("- 可直接执行的 next steps：")
-    for command in build_next_step_commands(plan.project_root.name):
-        typer.echo(f"  - {command}")
+    for next_command in build_next_step_commands(plan.project_root.name):
+        typer.echo(f"  - {next_command}")
