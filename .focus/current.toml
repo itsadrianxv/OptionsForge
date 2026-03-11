@@ -1,0 +1,2 @@
+strategy = "main"
+manifest_path = "focus/strategies/main/strategy.manifest.toml"

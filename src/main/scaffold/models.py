@@ -113,6 +113,7 @@ class ScaffoldPlan:
     hedging_config: dict[str, object]
     indicator_kwargs: dict[str, object]
     signal_kwargs: dict[str, object]
+    config_overrides: tuple[ConfigOverride, ...]
 
     @property
     def strategy_package_dir(self) -> Path:

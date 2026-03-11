@@ -5,13 +5,20 @@ from typing import Iterable
 
 import typer
 
-from src.cli.common import EXIT_CODE_VALIDATION, abort, display_path, flag_enabled
+from src.cli.common import (
+    EXIT_CODE_VALIDATION,
+    abort,
+    build_artifact,
+    capture_cli_failure_json,
+    display_path,
+    emit_single_json,
+    flag_enabled,
+)
 from src.main.scaffold.models import CapabilityKey, CapabilityOptionKey, CreateOptions
 from src.main.scaffold.next_steps import build_next_step_commands
 from src.main.scaffold.project import create_project_scaffold
 
-
-CREATE_COMMAND_HELP = "创建整仓库级期权策略项目脚手架；支持交互式向导，也支持通过 flags 一次性生成。"
+CREATE_COMMAND_HELP = "创建整仓库级期权策略项目脚手架，支持交互式向导，也支持通过 flags 一次性生成。"
 CREATE_COMMAND_EXAMPLES = (
     "常用示例：\n"
     "  交互创建\n"
@@ -32,12 +39,12 @@ CREATE_WITH_HELP = "按能力组显式开启功能，可重复传入；适合非
 CREATE_WITHOUT_HELP = "按能力组显式关闭功能，可重复传入；适合在预设基础上做裁剪。"
 CREATE_WITH_OPTION_HELP = "按二级子能力显式开启，可重复传入；用于更细粒度定制。"
 CREATE_WITHOUT_OPTION_HELP = "按二级子能力显式关闭，可重复传入；用于更细粒度裁剪。"
-CREATE_SET_HELP = "覆盖生成时的配置参数，使用 key=value 形式，可重复传入；例如 setting.max_positions=8。"
+CREATE_SET_HELP = "覆盖生成时的配置参数，使用 key=value 形式，可重复传入。"
 CREATE_FORCE_HELP = "跳过目录覆盖类操作的二次确认；仅在确认目标目录可被修改时使用。"
-CREATE_CLEAR_HELP = "目标目录非空时先清空再生成；会删除目录中的现有文件。"
-CREATE_OVERWRITE_HELP = "目标目录非空时保留目录，仅覆盖本次生成的同名冲突文件。"
+CREATE_CLEAR_HELP = "目标目录非空时先清空再生成。"
+CREATE_OVERWRITE_HELP = "目标目录非空时保留目录，仅覆盖本次生成的冲突文件。"
 CREATE_DEFAULT_HELP = "跳过提问，直接使用默认预设、默认能力和传入的 --set 生成。"
-CREATE_NO_INTERACTIVE_HELP = "禁用交互向导；仅按显式 flags、--set 与默认规则执行。"
+CREATE_NO_INTERACTIVE_HELP = "禁用交互向导，仅按显式 flags 与默认规则执行。"
 
 
 def _to_capabilities(values: Iterable[str]) -> tuple[CapabilityKey, ...]:
@@ -46,6 +53,49 @@ def _to_capabilities(values: Iterable[str]) -> tuple[CapabilityKey, ...]:
 
 def _to_options(values: Iterable[str]) -> tuple[CapabilityOptionKey, ...]:
     return tuple(CapabilityOptionKey(value) for value in values)
+
+
+def _emit_result(plan, *, json_output: bool) -> None:
+    next_steps = build_next_step_commands(plan.project_root.name)
+    if json_output:
+        emit_single_json(
+            "create",
+            ok=True,
+            data={
+                "project_name": plan.project_name,
+                "project_root": display_path(plan.project_root),
+                "strategy_slug": plan.strategy_slug,
+                "preset": plan.preset.key,
+                "capabilities": [item.value for item in plan.capabilities],
+                "enabled_options": [item.value for item in plan.enabled_options],
+                "next_steps": list(next_steps),
+            },
+            artifacts=(
+                build_artifact(plan.project_root, label="project-root", kind="directory"),
+                build_artifact(
+                    plan.project_root / "config" / "strategy_config.toml",
+                    label="strategy-config",
+                ),
+                build_artifact(
+                    plan.project_root / "strategy_spec.toml",
+                    label="strategy-spec",
+                ),
+                build_artifact(
+                    plan.project_root / "tests" / "TEST.md",
+                    label="test-plan",
+                ),
+            ),
+        )
+        return
+
+    typer.echo("项目脚手架已生成完成。")
+    typer.echo(f"- 项目根目录：{display_path(plan.project_root)}")
+    typer.echo(f"- 策略包：src/strategies/{plan.strategy_slug}")
+    typer.echo(f"- 主配置：{display_path(plan.project_root / 'config' / 'strategy_config.toml')}")
+    typer.echo(f"- 策略规格：{display_path(plan.project_root / 'strategy_spec.toml')}")
+    typer.echo("- 可直接执行的 next steps：")
+    for next_command in next_steps:
+        typer.echo(f"  - {next_command}")
 
 
 def command(
@@ -62,8 +112,8 @@ def command(
     overwrite: str = typer.Option("", "--overwrite", flag_value="1", show_default=False, help=CREATE_OVERWRITE_HELP),
     use_default: str = typer.Option("", "-y", "--default", flag_value="1", show_default=False, help=CREATE_DEFAULT_HELP),
     no_interactive: str = typer.Option("", "--no-interactive", flag_value="1", show_default=False, help=CREATE_NO_INTERACTIVE_HELP),
+    json_output: bool = False,
 ) -> None:
-    """创建整仓库级期权策略项目脚手架。"""
     try:
         plan = create_project_scaffold(
             CreateOptions(
@@ -83,12 +133,8 @@ def command(
             )
         )
     except (FileExistsError, ValueError) as exc:
+        if json_output:
+            capture_cli_failure_json("create", str(exc), exit_code=EXIT_CODE_VALIDATION)
         abort(str(exc), exit_code=EXIT_CODE_VALIDATION)
 
-    typer.echo("项目脚手架已生成完成。")
-    typer.echo(f"- 项目根目录：{display_path(plan.project_root)}")
-    typer.echo(f"- 策略包：src/strategies/{plan.strategy_slug}")
-    typer.echo(f"- 主配置：{display_path(plan.project_root / 'config' / 'strategy_config.toml')}")
-    typer.echo("- 可直接执行的 next steps：")
-    for next_command in build_next_step_commands(plan.project_root.name):
-        typer.echo(f"  - {next_command}")
+    _emit_result(plan, json_output=json_output)

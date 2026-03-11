@@ -1,0 +1,53 @@
+key = "kernel"
+depends_on = []
+owned_paths = [
+  "src/strategy/strategy_entry.py",
+  "src/strategy/application",
+  "src/strategy/domain/entity",
+  "src/strategy/domain/value_object",
+  "src/strategy/domain/domain_service/signal",
+  "src/strategy/infrastructure/bar_pipeline",
+  "src/strategy/infrastructure/subscription",
+  "src/strategy/infrastructure/utils",
+  "src/main/main.py",
+  "src/main/bootstrap",
+  "src/main/config",
+  "src/main/process",
+  "src/main/utils",
+  "src/cli",
+  "config/strategy_config.toml",
+  "config/general/trading_target.toml",
+  "config/logging/logging.toml",
+  "config/subscription/subscription.toml",
+  "config/timeframe",
+  "tests/strategy/application",
+  "tests/strategy/domain/entity",
+  "tests/strategy/domain/value_object",
+  "tests/strategy/infrastructure/bar_pipeline",
+  "tests/strategy/infrastructure/subscription",
+  "tests/strategy/infrastructure/utils",
+  "tests/cli/test_app.py",
+]
+config_keys = [
+  "strategies",
+  "strategy_contracts",
+  "service_activation",
+  "observability",
+  "runtime",
+]
+test_selectors = [
+  "tests/strategy/application/test_market_workflow_pipeline.py",
+  "tests/strategy/infrastructure/bar_pipeline/test_bar_pipeline.py",
+  "tests/strategy/infrastructure/subscription/test_subscription_mode_engine.py",
+  "tests/strategy/infrastructure/utils/test_date_calculator.py",
+  "tests/cli/test_app.py",
+]
+commands = [
+  "option-scaffold validate --config config/strategy_config.toml",
+  "option-scaffold run --config config/strategy_config.toml --paper",
+]
+agent_notes = [
+  "启用时机：任何策略都会依赖 kernel。",
+  "先看文件：focus manifest、config/strategy_config.toml、src/strategy/strategy_entry.py。",
+  "常见误改：不要把 pack 级逻辑塞回总入口，优先直接修改具体领域服务或基础设施实现。",
+]

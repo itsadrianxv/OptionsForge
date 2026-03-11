@@ -9,10 +9,13 @@ from unittest.mock import patch
 import click
 
 import src.cli.app as app_module
+import src.cli.commands.focus as focus_command_module
 from typer.testing import CliRunner
 
 from src import __version__
 from src.cli.app import app
+from src.main.focus.service import initialize_focus
+from tests.focus_testkit import build_fake_focus_repo
 
 runner = CliRunner()
 
@@ -406,3 +409,111 @@ def test_doctor_command_reports_summary() -> None:
     assert result.exit_code == 0
     assert "诊断完成" in result.stdout
     assert "[OK] Python" in result.stdout
+
+
+def test_focus_show_includes_recommended_first_pass(monkeypatch, tmp_path: Path) -> None:
+    repo_root = build_fake_focus_repo(tmp_path)
+    initialize_focus(
+        repo_root,
+        "alpha",
+        trading_target="510050",
+        strategy_type="volatility",
+        run_mode="paper",
+    )
+    monkeypatch.setattr(focus_command_module, "get_project_root", lambda: repo_root)
+
+    result = runner.invoke(app, ["focus", "show"])
+
+    assert result.exit_code == 0
+    assert "Recommended First Pass:" in result.stdout
+    assert "- pack:" in result.stdout
+    assert "- smoke: option-scaffold focus test" in result.stdout
+    assert "- full: option-scaffold focus test --full" in result.stdout
+    assert "Editable Surface:" in result.stdout
+    assert "Support Surface:" in result.stdout
+    assert "Frozen Surface:" in result.stdout
+
+
+def test_focus_refresh_reports_health_hint(monkeypatch, tmp_path: Path) -> None:
+    repo_root = build_fake_focus_repo(tmp_path)
+    initialize_focus(
+        repo_root,
+        "alpha",
+        trading_target="510050",
+        strategy_type="volatility",
+        run_mode="paper",
+    )
+    monkeypatch.setattr(focus_command_module, "get_project_root", lambda: repo_root)
+
+    result = runner.invoke(app, ["focus", "refresh"])
+
+    assert result.exit_code == 0
+    assert "TASK_ROUTER:" in result.stdout
+    assert "TEST_MATRIX:" in result.stdout
+    assert "焦点宽度：" in result.stdout
+    assert "当前焦点偏宽" in result.stdout
+
+
+def test_focus_test_defaults_to_smoke_mode(monkeypatch, tmp_path: Path) -> None:
+    repo_root = build_fake_focus_repo(tmp_path)
+    initialize_focus(
+        repo_root,
+        "alpha",
+        trading_target="510050",
+        strategy_type="volatility",
+        run_mode="paper",
+    )
+    monkeypatch.setattr(focus_command_module, "get_project_root", lambda: repo_root)
+    monkeypatch.setattr(
+        focus_command_module,
+        "run_focus_tests",
+        lambda repo_root_arg, strategy_name=None, extra_args=(), full=False: (
+            0 if repo_root_arg == repo_root and strategy_name is None and extra_args == () and full is False else 1
+        ),
+    )
+
+    result = runner.invoke(app, ["focus", "test"])
+
+    assert result.exit_code == 0
+    assert "测试模式: smoke" in result.stdout
+    assert "排除名称包含 `property` 的测试节点" in result.stdout
+    assert "排除名称包含 `pbt` 的测试节点" in result.stdout
+
+
+def test_focus_test_full_flag_uses_full_mode(monkeypatch, tmp_path: Path) -> None:
+    repo_root = build_fake_focus_repo(tmp_path)
+    initialize_focus(
+        repo_root,
+        "alpha",
+        trading_target="510050",
+        strategy_type="volatility",
+        run_mode="paper",
+    )
+    monkeypatch.setattr(focus_command_module, "get_project_root", lambda: repo_root)
+
+    captured: dict[str, object] = {}
+
+    def fake_run_focus_tests(
+        repo_root_arg: Path,
+        strategy_name: str | None = None,
+        extra_args: tuple[str, ...] = (),
+        *,
+        full: bool = False,
+    ) -> int:
+        captured["repo_root"] = repo_root_arg
+        captured["strategy_name"] = strategy_name
+        captured["extra_args"] = extra_args
+        captured["full"] = full
+        return 0
+
+    monkeypatch.setattr(focus_command_module, "run_focus_tests", fake_run_focus_tests)
+
+    result = runner.invoke(app, ["focus", "test", "--full"])
+
+    assert result.exit_code == 0
+    assert captured["repo_root"] == repo_root
+    assert captured["strategy_name"] is None
+    assert captured["extra_args"] == ()
+    assert captured["full"] is True
+    assert "测试模式: full" in result.stdout
+    assert "节点过滤: 无（运行完整焦点测试集合）" in result.stdout

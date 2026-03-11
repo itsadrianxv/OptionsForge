@@ -8,6 +8,7 @@ from textwrap import dedent
 from .catalog import REPO_ROOT, capability_label, capability_option_label, get_capability_options
 from .models import DirectoryConflictPolicy, ScaffoldPlan
 from .next_steps import build_next_step_commands
+from src.main.spec.service import build_test_plan_markdown, spec_from_plan, write_strategy_spec
 
 COPY_IGNORE = shutil.ignore_patterns(
     "__pycache__",
@@ -447,6 +448,14 @@ def _render_project_tests(plan: ScaffoldPlan) -> None:
     )
 
 
+def _render_agent_assets(plan: ScaffoldPlan) -> None:
+    spec = spec_from_plan(plan)
+    write_strategy_spec(spec)
+    _write(plan.project_root / "tests" / "TEST.md", build_test_plan_markdown(spec))
+    _write(plan.project_root / "artifacts" / "validate" / ".gitkeep", "")
+    _write(plan.project_root / "artifacts" / "backtest" / ".gitkeep", "")
+
+
 def render_scaffold_plan(plan: ScaffoldPlan) -> Path:
     """执行整个仓库脚手架渲染。"""
     _prepare_target_directory(plan)
@@ -457,4 +466,5 @@ def render_scaffold_plan(plan: ScaffoldPlan) -> Path:
     _write(plan.project_root / "src" / "strategies" / "__init__.py", "")
     _render_strategy_package(plan)
     _render_project_tests(plan)
+    _render_agent_assets(plan)
     return plan.project_root

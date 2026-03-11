@@ -1,0 +1,158 @@
+{
+  "strategy": {
+    "name": "main",
+    "trading_target": "option-universe",
+    "strategy_type": "custom",
+    "run_mode": "standalone",
+    "summary": "AI-first scaffold workspace for developing and iterating option strategies."
+  },
+  "manifest_path": "focus/strategies/main/strategy.manifest.toml",
+  "packs": [
+    "kernel",
+    "selection",
+    "pricing",
+    "risk",
+    "execution",
+    "hedging",
+    "monitoring",
+    "web",
+    "deploy",
+    "backtest"
+  ],
+  "recommended_first_pass": {
+    "pack": "selection",
+    "entry": "src/strategy/domain/domain_service/selection"
+  },
+  "entrypoints": {
+    "run": "option-scaffold run --config config/strategy_config.toml --paper",
+    "backtest": "option-scaffold backtest --config config/strategy_config.toml --start 2025-01-01 --end 2025-03-01 --no-chart",
+    "validate": "option-scaffold validate --config config/strategy_config.toml",
+    "monitor": "python src/web/app.py"
+  },
+  "surfaces": {
+    "editable": [
+      "src/strategy/strategy_entry.py",
+      "src/strategy/application",
+      "src/strategy/domain",
+      "config/strategy_config.toml",
+      "config/general/trading_target.toml",
+      "config/domain_service",
+      "tests/strategy",
+      "tests/web"
+    ],
+    "reference": [
+      "src/main",
+      "src/backtesting",
+      "src/web",
+      "src/cli",
+      "src/main/scaffold",
+      "tests/backtesting",
+      "tests/main/scaffold",
+      "deploy",
+      "doc",
+      "README.md"
+    ],
+    "frozen": [
+      ".codex",
+      ".git",
+      ".venv",
+      ".pytest_cache",
+      ".hypothesis",
+      "temp",
+      "LICENSE"
+    ]
+  },
+  "health": [
+    "焦点宽度：10 个 pack，8 个 Editable Surface 条目。",
+    "当前焦点偏宽，优先按 TASK_ROUTER 的首选入口开始。"
+  ],
+  "test_matrix": {
+    "smoke_selectors": [
+      "tests/main/focus",
+      "tests/cli/test_app.py",
+      "tests/strategy/application/test_market_workflow_pipeline.py",
+      "tests/strategy/infrastructure/bar_pipeline/test_bar_pipeline.py",
+      "tests/strategy/infrastructure/subscription/test_subscription_mode_engine.py",
+      "tests/strategy/infrastructure/utils/test_date_calculator.py",
+      "tests/strategy/domain/domain_service/test_selection_integration.py",
+      "tests/strategy/domain/domain_service/test_pricing_engine.py",
+      "tests/strategy/domain/domain_service/risk/test_risk_integration.py",
+      "tests/strategy/domain/domain_service/combination/test_combination_integration.py",
+      "tests/strategy/domain/domain_service/test_execution_integration.py",
+      "tests/strategy/domain/domain_service/test_delta_hedging_service.py",
+      "tests/strategy/domain/domain_service/test_vega_hedging_service.py",
+      "tests/strategy/infrastructure/monitoring/test_strategy_monitor_serialization.py",
+      "tests/strategy/infrastructure/persistence/test_state_repository.py",
+      "tests/web/test_monitor_template.py",
+      "tests/web/test_strategy_state_reader.py"
+    ],
+    "full_selectors": [
+      "tests/main/focus",
+      "tests/cli/test_app.py",
+      "tests/strategy/application/test_market_workflow_pipeline.py",
+      "tests/strategy/infrastructure/bar_pipeline/test_bar_pipeline.py",
+      "tests/strategy/infrastructure/subscription/test_subscription_mode_engine.py",
+      "tests/strategy/infrastructure/utils/test_date_calculator.py",
+      "tests/strategy/domain/domain_service/test_selection_integration.py",
+      "tests/strategy/domain/domain_service/test_pricing_engine.py",
+      "tests/strategy/domain/domain_service/risk/test_risk_integration.py",
+      "tests/strategy/domain/domain_service/combination/test_combination_integration.py",
+      "tests/strategy/domain/domain_service/test_execution_integration.py",
+      "tests/strategy/domain/domain_service/test_delta_hedging_service.py",
+      "tests/strategy/domain/domain_service/test_vega_hedging_service.py",
+      "tests/strategy/infrastructure/monitoring/test_strategy_monitor_serialization.py",
+      "tests/strategy/infrastructure/persistence/test_state_repository.py",
+      "tests/web/test_monitor_template.py",
+      "tests/web/test_strategy_state_reader.py"
+    ],
+    "smoke_keyword_expression": "not property and not pbt",
+    "smoke_filter_descriptions": [
+      "排除名称包含 `property` 的测试节点。",
+      "排除名称包含 `pbt` 的测试节点。"
+    ],
+    "skipped_packs": [
+      {
+        "pack_key": "backtest",
+        "missing_modules": [
+          "chinese_calendar"
+        ]
+      }
+    ]
+  },
+  "generated_docs": {
+    "system_map": ".focus/SYSTEM_MAP.md",
+    "active_surface": ".focus/ACTIVE_SURFACE.md",
+    "task_brief": ".focus/TASK_BRIEF.md",
+    "commands": ".focus/COMMANDS.md",
+    "task_router": ".focus/TASK_ROUTER.md",
+    "test_matrix": ".focus/TEST_MATRIX.md",
+    "context_json": ".focus/context.json"
+  },
+  "acceptance": {
+    "summary": "AI-first scaffold workspace for developing and iterating option strategies.",
+    "completion_checks": [
+      "Focus navigation files are refreshed and point to the current manifest.",
+      "Validation command succeeds for the current strategy configuration.",
+      "Focus smoke tests pass for the current strategy."
+    ],
+    "minimal_test_command": "option-scaffold focus test",
+    "test_selectors": [
+      "tests/main/focus",
+      "tests/cli/test_app.py"
+    ],
+    "key_logs": [
+      "校验通过",
+      "诊断完成",
+      "已刷新策略焦点导航"
+    ],
+    "key_outputs": [
+      ".focus/SYSTEM_MAP.md",
+      ".focus/ACTIVE_SURFACE.md",
+      ".focus/TASK_BRIEF.md",
+      ".focus/COMMANDS.md",
+      ".focus/TASK_ROUTER.md",
+      ".focus/TEST_MATRIX.md",
+      ".focus/context.json"
+    ]
+  }
+}

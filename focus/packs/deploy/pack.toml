@@ -1,0 +1,17 @@
+key = "deploy"
+depends_on = ["kernel", "monitoring", "web"]
+owned_paths = [
+  ".dockerignore",
+  ".env.example",
+  "deploy",
+]
+config_keys = []
+test_selectors = []
+commands = [
+  "docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build",
+]
+agent_notes = [
+  "启用时机：需要容器化、数据库联调或 runner + monitor 一起启动时。",
+  "先看文件：deploy/docker-compose.yml、deploy/.env.example、deploy/Dockerfile。",
+  "常见误改：本地策略迭代不必先动 deploy，优先确认运行链路和焦点文档。",
+]

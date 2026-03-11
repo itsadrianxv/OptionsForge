@@ -1,11 +1,9 @@
-"""配置校验命令。"""
-
 from __future__ import annotations
 
 import argparse
 from datetime import date
 from pathlib import Path
-from typing import Optional
+import sys
 
 import typer
 
@@ -13,11 +11,17 @@ from src.backtesting.config import BacktestConfig
 from src.cli.common import (
     CheckResult,
     EXIT_CODE_VALIDATION,
+    abort,
+    build_artifact,
+    build_error,
     display_path,
     echo_check,
+    emit_single_json,
     ensure_project_root_on_path,
     flag_enabled,
     resolve_project_path,
+    utc_now_iso,
+    write_command_artifact,
 )
 from src.main.config.config_loader import ConfigLoader
 
@@ -41,7 +45,7 @@ def _parse_iso_date(raw: str, label: str) -> tuple[date | None, CheckResult]:
     try:
         parsed = date.fromisoformat(raw)
     except ValueError:
-        return None, _error(label, f"日期格式必须为 YYYY-MM-DD，收到: {raw}")
+        return None, _error(label, f"日期格式必须是 YYYY-MM-DD，收到: {raw}")
 
     return parsed, _ok(label, raw)
 
@@ -73,12 +77,12 @@ def _validate_backtest_overrides(
         if start_date > end_date:
             results.append(_error("回测日期区间", f"开始日期 {start} 晚于结束日期 {end}"))
         else:
-            results.append(_ok("回测日期区间", f"{start} → {end}"))
+            results.append(_ok("回测日期区间", f"{start} -> {end}"))
 
     numeric_checks = [
         ("初始资金", capital, lambda value: value > 0, "必须大于 0"),
-        ("手续费率", rate, lambda value: value >= 0, "不能为负数"),
-        ("滑点", slippage, lambda value: value >= 0, "不能为负数"),
+        ("手续费率", rate, lambda value: value >= 0, "不能是负数"),
+        ("滑点", slippage, lambda value: value >= 0, "不能是负数"),
         ("合约乘数", size, lambda value: value > 0, "必须大于 0"),
         ("最小价格变动", pricetick, lambda value: value > 0, "必须大于 0"),
     ]
@@ -117,44 +121,58 @@ def _validate_backtest_overrides(
     return results
 
 
-def command(
-    config: Path = typer.Option(Path("config/strategy_config.toml"), "--config", help="策略配置文件路径。"),
-    override_config: Optional[Path] = typer.Option(None, "--override-config", help="可选的覆盖配置文件路径。"),
-    start: Optional[str] = typer.Option(None, "--start", help="可选的回测开始日期，格式 YYYY-MM-DD。"),
-    end: Optional[str] = typer.Option(None, "--end", help="可选的回测结束日期，格式 YYYY-MM-DD。"),
-    capital: Optional[int] = typer.Option(None, "--capital", help="可选的回测初始资金覆盖值。"),
-    rate: Optional[float] = typer.Option(None, "--rate", help="可选的回测手续费率覆盖值。"),
-    slippage: Optional[float] = typer.Option(None, "--slippage", help="可选的回测滑点覆盖值。"),
-    size: Optional[int] = typer.Option(None, "--size", help="可选的回测合约乘数覆盖值。"),
-    pricetick: Optional[float] = typer.Option(None, "--pricetick", help="可选的回测最小价格变动覆盖值。"),
-    no_chart: str = typer.Option("", "--no-chart", flag_value="1", show_default=False, help="按回测命令语义校验图表开关。"),
-) -> None:
-    """校验策略配置、契约绑定与可选回测参数。"""
+def collect_validation_results(
+    *,
+    repo_root: Path | None = None,
+    config: Path,
+    override_config: Path | None = None,
+    start: str | None = None,
+    end: str | None = None,
+    capital: int | None = None,
+    rate: float | None = None,
+    slippage: float | None = None,
+    size: int | None = None,
+    pricetick: float | None = None,
+    no_chart: str = "",
+) -> tuple[list[CheckResult], dict[str, object], list[dict[str, str]], int, int]:
     ensure_project_root_on_path()
+    if repo_root is not None and str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
 
     results: list[CheckResult] = []
+    artifacts: list[dict[str, str]] = []
     base_config: dict | None = None
     merged_config: dict | None = None
     override_payload: dict | None = None
 
-    resolved_config = resolve_project_path(config)
+    def resolve_with_root(path: str | Path) -> Path:
+        candidate = Path(path)
+        if candidate.is_absolute():
+            return candidate
+        if repo_root is not None:
+            return repo_root / candidate
+        return resolve_project_path(candidate)
+
+    resolved_config = resolve_with_root(config)
     if not resolved_config.exists():
         results.append(_error("策略配置文件", f"未找到 {display_path(resolved_config)}"))
     else:
         try:
             base_config = ConfigLoader.load_toml(str(resolved_config))
             results.append(_ok("策略配置文件", display_path(resolved_config)))
+            artifacts.append(build_artifact(resolved_config, label="strategy-config"))
         except Exception as exc:
             results.append(_error("策略配置文件", f"{display_path(resolved_config)} 解析失败: {exc}"))
 
     if override_config is not None:
-        resolved_override = resolve_project_path(override_config)
+        resolved_override = resolve_with_root(override_config)
         if not resolved_override.exists():
             results.append(_error("覆盖配置文件", f"未找到 {display_path(resolved_override)}"))
         else:
             try:
                 override_payload = ConfigLoader.load_toml(str(resolved_override))
                 results.append(_ok("覆盖配置文件", display_path(resolved_override)))
+                artifacts.append(build_artifact(resolved_override, label="override-config"))
             except Exception as exc:
                 results.append(_error("覆盖配置文件", f"{display_path(resolved_override)} 解析失败: {exc}"))
 
@@ -191,11 +209,16 @@ def command(
                 results.append(_error("可观测性配置", "decision_journal_maxlen 必须大于 0"))
             else:
                 emit_noop = bool(observability.get("emit_noop_decisions", False))
-                results.append(_ok("可观测性配置", f"decision_journal_maxlen={journal_limit}, emit_noop_decisions={emit_noop}"))
+                results.append(
+                    _ok(
+                        "可观测性配置",
+                        f"decision_journal_maxlen={journal_limit}, emit_noop_decisions={emit_noop}",
+                    )
+                )
         except (TypeError, ValueError):
             results.append(_error("可观测性配置", "decision_journal_maxlen 必须为整数"))
 
-    target_path = resolve_project_path("config/general/trading_target.toml")
+    target_path = resolve_with_root("config/general/trading_target.toml")
     if not target_path.exists():
         results.append(_error("交易标的配置", f"未找到 {display_path(target_path)}"))
     else:
@@ -205,10 +228,11 @@ def command(
                 results.append(_error("交易标的配置", "targets 不能为空"))
             else:
                 results.append(_ok("交易标的配置", f"已配置 {len(targets)} 个标的: {', '.join(targets)}"))
+                artifacts.append(build_artifact(target_path, label="trading-target-config"))
         except Exception as exc:
             results.append(_error("交易标的配置", str(exc)))
 
-    subscription_path = resolve_project_path("config/subscription/subscription.toml")
+    subscription_path = resolve_with_root("config/subscription/subscription.toml")
     if subscription_path.exists():
         try:
             subscription_config = ConfigLoader.load_toml(str(subscription_path))
@@ -217,7 +241,7 @@ def command(
         except Exception as exc:
             results.append(_error("订阅配置", f"{display_path(subscription_path)} 解析失败: {exc}"))
     else:
-        results.append(_warn("订阅配置", f"未找到 {display_path(subscription_path)}，已按可选项跳过"))
+        results.append(_warn("订阅配置", f"未找到 {display_path(subscription_path)}，按可选项跳过"))
 
     results.extend(
         _validate_backtest_overrides(
@@ -233,12 +257,89 @@ def command(
         )
     )
 
+    error_count = sum(1 for result in results if result.status == "ERROR")
+    warning_count = sum(1 for result in results if result.status == "WARN")
+    summary = {
+        "config": display_path(resolved_config),
+        "override_config": display_path(override_config) if override_config else None,
+        "error_count": error_count,
+        "warning_count": warning_count,
+        "check_count": len(results),
+    }
+    return results, summary, artifacts, error_count, warning_count
+
+
+def command(
+    config: Path = typer.Option(Path("config/strategy_config.toml"), "--config", help="策略配置文件路径。"),
+    override_config: Path | None = typer.Option(None, "--override-config", help="可选的覆盖配置文件路径。"),
+    start: str | None = typer.Option(None, "--start", help="可选的回测开始日期，格式 YYYY-MM-DD。"),
+    end: str | None = typer.Option(None, "--end", help="可选的回测结束日期，格式 YYYY-MM-DD。"),
+    capital: int | None = typer.Option(None, "--capital", help="可选的回测初始资金。"),
+    rate: float | None = typer.Option(None, "--rate", help="可选的回测手续费率。"),
+    slippage: float | None = typer.Option(None, "--slippage", help="可选的回测滑点。"),
+    size: int | None = typer.Option(None, "--size", help="可选的回测合约乘数。"),
+    pricetick: float | None = typer.Option(None, "--pricetick", help="可选的回测最小价格变动。"),
+    no_chart: str = typer.Option("", "--no-chart", flag_value="1", show_default=False, help="校验时按回测语义处理图表开关。"),
+    json_output: bool = False,
+) -> None:
+    started_at = utc_now_iso()
+    results, summary, artifacts, error_count, warning_count = collect_validation_results(
+        config=config,
+        override_config=override_config,
+        start=start,
+        end=end,
+        capital=capital,
+        rate=rate,
+        slippage=slippage,
+        size=size,
+        pricetick=pricetick,
+        no_chart=no_chart,
+    )
+    finished_at = utc_now_iso()
+    ok = error_count == 0
+    errors = () if ok else (build_error("Validation failed", error_type="validation"),)
+    artifact_path = write_command_artifact(
+        "validate",
+        ok=ok,
+        command="validate",
+        started_at=started_at,
+        finished_at=finished_at,
+        inputs={
+            "config": str(config),
+            "override_config": str(override_config) if override_config else None,
+            "start": start,
+            "end": end,
+            "capital": capital,
+            "rate": rate,
+            "slippage": slippage,
+            "size": size,
+            "pricetick": pricetick,
+            "no_chart": flag_enabled(no_chart),
+        },
+        summary=summary,
+        artifacts=artifacts,
+        errors=errors,
+    )
+    all_artifacts = [*artifacts, build_artifact(artifact_path, label="validate-latest-json")]
+
+    if json_output:
+        emit_single_json(
+            "validate",
+            ok=ok,
+            data=summary,
+            checks=results,
+            artifacts=all_artifacts,
+            errors=errors,
+            exit_code=0 if ok else EXIT_CODE_VALIDATION,
+        )
+        if not ok:
+            raise typer.Exit(code=EXIT_CODE_VALIDATION)
+        return
+
     for result in results:
         echo_check(result)
 
-    error_count = sum(1 for result in results if result.status == "ERROR")
-    warning_count = sum(1 for result in results if result.status == "WARN")
-    if error_count:
+    if not ok:
         typer.echo(f"校验失败：{error_count} 个错误，{warning_count} 个提示。")
         raise typer.Exit(code=EXIT_CODE_VALIDATION)
 

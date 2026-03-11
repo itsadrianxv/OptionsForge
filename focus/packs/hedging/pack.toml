@@ -1,0 +1,25 @@
+key = "hedging"
+depends_on = ["kernel", "risk", "execution"]
+owned_paths = [
+  "src/strategy/domain/domain_service/hedging",
+  "config/strategy_config.toml",
+  "tests/strategy/domain/domain_service/test_delta_hedging_service.py",
+  "tests/strategy/domain/domain_service/test_vega_hedging_service.py",
+]
+config_keys = [
+  "service_activation.delta_hedging",
+  "service_activation.vega_hedging",
+  "hedging",
+]
+test_selectors = [
+  "tests/strategy/domain/domain_service/test_delta_hedging_service.py",
+  "tests/strategy/domain/domain_service/test_vega_hedging_service.py",
+]
+commands = [
+  "option-scaffold run --config config/strategy_config.toml --paper",
+]
+agent_notes = [
+  "启用时机：需要 Delta / Vega 对冲或 gamma scalping 时。",
+  "先看文件：src/strategy/domain/domain_service/hedging 与 config/strategy_config.toml 下的 hedging 配置。",
+  "常见误改：不要把对冲阈值散落到业务代码里，优先保持在配置驱动的 hedging 服务中。",
+]

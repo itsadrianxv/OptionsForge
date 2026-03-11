@@ -19,6 +19,15 @@ from src.main.config.config_loader import ConfigLoader
 logger = logging.getLogger(__name__)
 
 
+def _coerce_scalar(value):
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    try:
+        return float(value)
+    except Exception:
+        return str(value)
+
+
 class BacktestRunner:
     """回测执行器，编排完整回测流程。"""
 
@@ -26,7 +35,7 @@ class BacktestRunner:
         self.config = config
         self.registry = ContractRegistry()
 
-    def run(self) -> None:
+    def run(self) -> dict[str, object]:
         """执行完整回测流程。"""
         # 延迟导入 VnPy 依赖（测试环境可能不可用）
         from vnpy.trader.constant import Interval
@@ -38,8 +47,12 @@ class BacktestRunner:
         config = ConfigLoader.load_strategy_config(self.config.config_path)
 
         if not config.get("strategies"):
-            logger.error("错误: 配置中未找到策略。")
-            return
+            logger.error("No strategies found in config.")
+            return {
+                "ok": False,
+                "reason": "missing_strategies",
+                "config_path": str(self.config.config_path),
+            }
 
         strategy_config = config["strategies"][0]
         vt_symbols_config: List[str] = strategy_config.get("vt_symbols", [])
@@ -71,8 +84,13 @@ class BacktestRunner:
 
         # Req 9.5: 空 vt_symbols 时终止执行
         if not vt_symbols:
-            logger.error("无法生成有效的 vt_symbols，终止回测。")
-            return
+            logger.error("Unable to generate any vt_symbols; aborting backtest.")
+            return {
+                "ok": False,
+                "reason": "missing_vt_symbols",
+                "config_path": str(self.config.config_path),
+                "target_products": target_products,
+            }
 
         # 5. 注册合约到 ContractRegistry
         registered = self.registry.register_many(vt_symbols)
@@ -126,9 +144,36 @@ class BacktestRunner:
         engine.run_backtesting()
 
         logger.info("正在计算结果...")
-        engine.calculate_result()
-        engine.calculate_statistics()
+        result_frame = engine.calculate_result()
+        statistics = engine.calculate_statistics()
 
         # Req 9.4: 显示图表
         if self.config.show_chart:
             engine.show_chart()
+
+        summary: dict[str, object] = {
+            "ok": True,
+            "config_path": str(self.config.config_path),
+            "start_date": self.config.start_date,
+            "end_date": end_date,
+            "capital": self.config.capital,
+            "show_chart": self.config.show_chart,
+            "target_products": target_products,
+            "vt_symbols_count": len(vt_symbols),
+            "option_symbols_count": len(option_symbols),
+            "registered_contracts": registered,
+        }
+        if isinstance(statistics, dict):
+            summary["statistics"] = {
+                key: _coerce_scalar(value)
+                for key, value in statistics.items()
+            }
+        else:
+            summary["statistics"] = _coerce_scalar(statistics)
+
+        try:
+            summary["result_row_count"] = len(result_frame) if result_frame is not None else 0
+        except TypeError:
+            summary["result_row_count"] = 0
+
+        return summary

@@ -28,6 +28,19 @@ from src.cli.commands.create import (
 )
 from src.cli.commands.doctor import command as doctor_command
 from src.cli.commands.examples import command as examples_command
+from src.cli.commands.forge import command as forge_command
+from src.cli.commands.focus import (
+    FOCUS_COMMAND_HELP,
+    FOCUS_INIT_HELP,
+    FOCUS_PACK_CHOICES,
+    FOCUS_REFRESH_HELP,
+    FOCUS_SHOW_HELP,
+    FOCUS_TEST_HELP,
+    init_command as focus_init_command,
+    refresh_command as focus_refresh_command,
+    show_command as focus_show_command,
+    test_command as focus_test_command,
+)
 from src.cli.commands.init import command as init_command
 from src.cli.commands.run import LogLevel, RunMode, command as run_command
 from src.cli.commands.validate import command as validate_command
@@ -86,7 +99,11 @@ def _run_main_menu_action(choice: int) -> None:
         return
 
 
-@click.group(name="option-scaffold", help="期权策略脚手架统一命令入口。", invoke_without_command=True)
+@click.group(
+    name="option-scaffold",
+    help="AI-first 期权策略脚手架统一命令入口，推荐先使用 focus 聚焦当前策略。",
+    invoke_without_command=True,
+)
 @click.option(
     "--version",
     "-V",
@@ -108,6 +125,79 @@ def app(ctx: click.Context) -> None:
 
     click.echo(ctx.get_help())
     ctx.exit()
+
+
+@app.group("focus", help=FOCUS_COMMAND_HELP)
+def focus_group() -> None:
+    """AI-first focus 工作流。"""
+
+
+@focus_group.command("init", help=FOCUS_INIT_HELP)
+@click.argument("name")
+@click.option("--trading-target", default="option-universe", show_default=True, help="策略交易标的。")
+@click.option("--strategy-type", default="custom", show_default=True, help="策略类型标签。")
+@click.option("--run-mode", default="standalone", show_default=True, help="默认运行模式。")
+@click.option(
+    "--pack",
+    multiple=True,
+    type=click.Choice(list(FOCUS_PACK_CHOICES), case_sensitive=False),
+    help="显式启用的 pack；省略时默认启用全家桶。",
+)
+@click.option(
+    "--without-pack",
+    multiple=True,
+    type=click.Choice(list(FOCUS_PACK_CHOICES), case_sensitive=False),
+    help="显式关闭的 pack。",
+)
+@click.option("--force", is_flag=True, help="Manifest 已存在时允许覆盖。")
+@click.option("--json", "json_output", is_flag=True, help="输出 JSON。")
+def focus_init_click(
+    name: str,
+    trading_target: str,
+    strategy_type: str,
+    run_mode: str,
+    pack: tuple[str, ...],
+    without_pack: tuple[str, ...],
+    force: bool,
+    json_output: bool,
+) -> None:
+    focus_init_command(
+        name=name,
+        trading_target=trading_target,
+        strategy_type=strategy_type,
+        run_mode=run_mode,
+        pack=tuple(pack),
+        without_pack=tuple(without_pack),
+        force="1" if force else "",
+        json_output=json_output,
+    )
+
+
+@focus_group.command("refresh", help=FOCUS_REFRESH_HELP)
+@click.option("--strategy", default=None, help="可选；刷新指定策略并将其设为当前焦点。")
+@click.option("--json", "json_output", is_flag=True, help="输出 JSON。")
+def focus_refresh_click(strategy: str | None, json_output: bool) -> None:
+    focus_refresh_command(strategy=strategy, json_output=json_output)
+
+
+@focus_group.command("show", help=FOCUS_SHOW_HELP)
+@click.option("--strategy", default=None, help="可选；展示指定策略的焦点上下文。")
+@click.option("--json", "json_output", is_flag=True, help="输出 JSON。")
+def focus_show_click(strategy: str | None, json_output: bool) -> None:
+    focus_show_command(strategy=strategy, json_output=json_output)
+
+
+@focus_group.command(
+    "test",
+    help=FOCUS_TEST_HELP,
+    context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
+)
+@click.option("--strategy", default=None, help="可选；运行指定策略的焦点测试集合。")
+@click.option("--full", "run_full", is_flag=True, help="运行完整焦点测试集合，不应用 smoke 过滤。")
+@click.option("--json", "json_output", is_flag=True, help="输出 JSON。")
+@click.pass_context
+def focus_test_click(ctx: click.Context, strategy: str | None, run_full: bool, json_output: bool) -> None:
+    focus_test_command(strategy=strategy, extra_args=tuple(ctx.args), full=run_full, json_output=json_output)
 
 
 @app.command("create", help=f"{CREATE_COMMAND_HELP}\n\n\b\n{CREATE_COMMAND_EXAMPLES}")
@@ -199,6 +289,7 @@ def app(ctx: click.Context) -> None:
 @click.option("--overwrite", is_flag=True, help=CREATE_OVERWRITE_HELP)
 @click.option("-y", "--default", "use_default", is_flag=True, help=CREATE_DEFAULT_HELP)
 @click.option("--no-interactive", is_flag=True, help=CREATE_NO_INTERACTIVE_HELP)
+@click.option("--json", "json_output", is_flag=True, help="输出 JSON。")
 def create_click(
     name: str | None,
     destination: Path,
@@ -213,6 +304,7 @@ def create_click(
     overwrite: bool,
     use_default: bool,
     no_interactive: bool,
+    json_output: bool,
 ) -> None:
     create_command(
         name=name,
@@ -228,6 +320,131 @@ def create_click(
         overwrite="1" if overwrite else "",
         use_default="1" if use_default else "",
         no_interactive="1" if no_interactive else "",
+        json_output=json_output,
+    )
+
+
+@app.command("forge", help="基于 strategy_spec.toml 串起脚手架、focus、测试计划与验证流程。")
+@click.argument("name", required=False)
+@click.option("--spec", type=click.Path(path_type=Path, dir_okay=False), default=None, help="显式指定 strategy_spec.toml。")
+@click.option(
+    "--destination",
+    "-d",
+    type=click.Path(path_type=Path, file_okay=False),
+    default=Path("."),
+    show_default=True,
+    help=CREATE_DESTINATION_HELP,
+)
+@click.option(
+    "--preset",
+    type=click.Choice(["custom", "ema-cross", "iv-rank", "delta-neutral"], case_sensitive=False),
+    default=None,
+    help=CREATE_PRESET_HELP,
+)
+@click.option(
+    "--with",
+    "with_",
+    multiple=True,
+    type=click.Choice(
+        ["selection", "position-sizing", "pricing", "greeks-risk", "execution", "hedging", "monitoring", "observability"],
+        case_sensitive=False,
+    ),
+    help=CREATE_WITH_HELP,
+)
+@click.option(
+    "--without",
+    multiple=True,
+    type=click.Choice(
+        ["selection", "position-sizing", "pricing", "greeks-risk", "execution", "hedging", "monitoring", "observability"],
+        case_sensitive=False,
+    ),
+    help=CREATE_WITHOUT_HELP,
+)
+@click.option(
+    "--with-option",
+    "with_option",
+    multiple=True,
+    type=click.Choice(
+        [
+            "future-selection",
+            "option-chain",
+            "option-selector",
+            "position-sizing",
+            "pricing-engine",
+            "greeks-calculator",
+            "portfolio-risk",
+            "smart-order-executor",
+            "advanced-order-scheduler",
+            "delta-hedging",
+            "vega-hedging",
+            "monitoring",
+            "decision-observability",
+        ],
+        case_sensitive=False,
+    ),
+    help=CREATE_WITH_OPTION_HELP,
+)
+@click.option(
+    "--without-option",
+    "without_option",
+    multiple=True,
+    type=click.Choice(
+        [
+            "future-selection",
+            "option-chain",
+            "option-selector",
+            "position-sizing",
+            "pricing-engine",
+            "greeks-calculator",
+            "portfolio-risk",
+            "smart-order-executor",
+            "advanced-order-scheduler",
+            "delta-hedging",
+            "vega-hedging",
+            "monitoring",
+            "decision-observability",
+        ],
+        case_sensitive=False,
+    ),
+    help=CREATE_WITHOUT_OPTION_HELP,
+)
+@click.option("--set", "set_values", multiple=True, help=CREATE_SET_HELP)
+@click.option("--force", is_flag=True, help=CREATE_FORCE_HELP)
+@click.option("--clear", is_flag=True, help=CREATE_CLEAR_HELP)
+@click.option("--overwrite", is_flag=True, help=CREATE_OVERWRITE_HELP)
+@click.option("--no-interactive", is_flag=True, help=CREATE_NO_INTERACTIVE_HELP)
+@click.option("--json", "json_output", is_flag=True, help="输出 NDJSON。")
+def forge_click(
+    name: str | None,
+    spec: Path | None,
+    destination: Path,
+    preset: str | None,
+    with_: tuple[str, ...],
+    without: tuple[str, ...],
+    with_option: tuple[str, ...],
+    without_option: tuple[str, ...],
+    set_values: tuple[str, ...],
+    force: bool,
+    clear: bool,
+    overwrite: bool,
+    no_interactive: bool,
+    json_output: bool,
+) -> None:
+    forge_command(
+        name=name,
+        spec=spec,
+        destination=destination,
+        preset=preset,
+        with_=tuple(with_),
+        without=tuple(without),
+        with_option=tuple(with_option),
+        without_option=tuple(without_option),
+        set_values=tuple(set_values),
+        force="1" if force else "",
+        clear="1" if clear else "",
+        overwrite="1" if overwrite else "",
+        no_interactive="1" if no_interactive else "",
+        json_output=json_output,
     )
 
 
@@ -242,8 +459,9 @@ def create_click(
     help="输出目录，默认写入根目录下的 example/。",
 )
 @click.option("--force", is_flag=True, help="目录已存在时允许覆盖文件。")
-def init_click(name: str, destination: Path, force: bool) -> None:
-    init_command(name=name, destination=destination, force="1" if force else "")
+@click.option("--json", "json_output", is_flag=True, help="输出 JSON。")
+def init_click(name: str, destination: Path, force: bool, json_output: bool) -> None:
+    init_command(name=name, destination=destination, force="1" if force else "", json_output=json_output)
 
 
 @app.command("run", help="启动策略主程序。")
@@ -283,6 +501,7 @@ def init_click(name: str, destination: Path, force: bool) -> None:
 )
 @click.option("--no-ui", is_flag=True, help="无界面模式运行。")
 @click.option("--paper", is_flag=True, help="启用模拟交易模式。")
+@click.option("--json", "json_output", is_flag=True, help="输出 NDJSON。")
 def run_click(
     mode: str,
     config: Path,
@@ -291,6 +510,7 @@ def run_click(
     log_dir: Path,
     no_ui: bool,
     paper: bool,
+    json_output: bool,
 ) -> None:
     run_command(
         mode=RunMode(mode),
@@ -300,6 +520,7 @@ def run_click(
         log_dir=log_dir,
         no_ui="1" if no_ui else "",
         paper="1" if paper else "",
+        json_output=json_output,
     )
 
 
@@ -313,6 +534,7 @@ def run_click(
 @click.option("--size", type=int, default=None, help="合约乘数。")
 @click.option("--pricetick", type=float, default=None, help="最小价格变动。")
 @click.option("--no-chart", is_flag=True, help="不显示图表。")
+@click.option("--json", "json_output", is_flag=True, help="输出 NDJSON。")
 def backtest_click(
     config: Path | None,
     start: str | None,
@@ -323,6 +545,7 @@ def backtest_click(
     size: int | None,
     pricetick: float | None,
     no_chart: bool,
+    json_output: bool,
 ) -> None:
     backtest_command(
         config=config,
@@ -334,6 +557,7 @@ def backtest_click(
         size=size,
         pricetick=pricetick,
         no_chart="1" if no_chart else "",
+        json_output=json_output,
     )
 
 
@@ -359,6 +583,7 @@ def backtest_click(
 @click.option("--size", type=int, default=None, help="可选回测合约乘数。")
 @click.option("--pricetick", type=float, default=None, help="可选回测最小价格变动。")
 @click.option("--no-chart", is_flag=True, help="校验时按回测语义处理图表开关。")
+@click.option("--json", "json_output", is_flag=True, help="输出 JSON。")
 def validate_click(
     config: Path,
     override_config: Path | None,
@@ -370,6 +595,7 @@ def validate_click(
     size: int | None,
     pricetick: float | None,
     no_chart: bool,
+    json_output: bool,
 ) -> None:
     validate_command(
         config=config,
@@ -382,20 +608,23 @@ def validate_click(
         size=size,
         pricetick=pricetick,
         no_chart="1" if no_chart else "",
+        json_output=json_output,
     )
 
 
 @app.command("examples", help="查看内置示例。")
 @click.argument("name", required=False)
-def examples_click(name: str | None) -> None:
-    examples_command(name=name)
+@click.option("--json", "json_output", is_flag=True, help="输出 JSON。")
+def examples_click(name: str | None, json_output: bool) -> None:
+    examples_command(name=name, json_output=json_output)
 
 
 @app.command("doctor", help="诊断本地 CLI 环境与依赖。")
 @click.option("--strict", is_flag=True, help="将警告也视为失败。")
 @click.option("--check-db", is_flag=True, help="额外尝试连接数据库并执行 SELECT 1。")
-def doctor_click(strict: bool, check_db: bool) -> None:
-    doctor_command(strict="1" if strict else "", check_db="1" if check_db else "")
+@click.option("--json", "json_output", is_flag=True, help="输出 JSON。")
+def doctor_click(strict: bool, check_db: bool, json_output: bool) -> None:
+    doctor_command(strict="1" if strict else "", check_db="1" if check_db else "", json_output=json_output)
 
 
 _original_get_command = typer_main.get_command

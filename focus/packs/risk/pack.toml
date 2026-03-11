@@ -1,0 +1,29 @@
+key = "risk"
+depends_on = ["kernel", "selection"]
+owned_paths = [
+  "src/strategy/domain/domain_service/risk",
+  "src/strategy/domain/domain_service/combination",
+  "config/domain_service/risk",
+  "tests/strategy/domain/domain_service/risk",
+  "tests/strategy/domain/domain_service/combination",
+]
+config_keys = [
+  "service_activation.position_sizing",
+  "service_activation.greeks_calculator",
+  "service_activation.portfolio_risk",
+  "position_sizing",
+  "greeks_risk",
+  "combination_risk",
+]
+test_selectors = [
+  "tests/strategy/domain/domain_service/risk/test_risk_integration.py",
+  "tests/strategy/domain/domain_service/combination/test_combination_integration.py",
+]
+commands = [
+  "option-scaffold validate --config config/strategy_config.toml",
+]
+agent_notes = [
+  "启用时机：需要仓位控制、组合 Greeks、止损或风险预算时。",
+  "先看文件：src/strategy/domain/domain_service/risk、src/strategy/domain/domain_service/combination。",
+  "常见误改：不要把风控判断回塞到 CLI 或 workflow，保持在具体 risk 服务内。",
+]

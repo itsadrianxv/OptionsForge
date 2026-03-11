@@ -1,0 +1,25 @@
+key = "monitoring"
+depends_on = ["kernel"]
+owned_paths = [
+  "src/strategy/infrastructure/monitoring",
+  "src/strategy/infrastructure/persistence",
+  "tests/strategy/infrastructure/monitoring",
+  "tests/strategy/infrastructure/persistence",
+]
+config_keys = [
+  "service_activation.monitoring",
+  "service_activation.decision_observability",
+  "observability",
+]
+test_selectors = [
+  "tests/strategy/infrastructure/monitoring/test_strategy_monitor_serialization.py",
+  "tests/strategy/infrastructure/persistence/test_state_repository.py",
+]
+commands = [
+  "option-scaffold run --config config/strategy_config.toml --paper",
+]
+agent_notes = [
+  "启用时机：需要状态落盘、决策日志、快照或监控序列化时。",
+  "先看文件：src/strategy/infrastructure/monitoring、src/strategy/infrastructure/persistence。",
+  "常见误改：不要把监控存储细节混入 domain service，保持在基础设施层。",
+]

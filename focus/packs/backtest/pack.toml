@@ -1,0 +1,22 @@
+key = "backtest"
+depends_on = ["kernel", "selection"]
+owned_paths = [
+  "src/backtesting",
+  "tests/backtesting",
+]
+config_keys = [
+  "strategies",
+  "service_activation",
+]
+test_selectors = [
+  "tests/backtesting/test_cli.py",
+  "tests/backtesting/test_runner.py",
+]
+commands = [
+  "option-scaffold backtest --config config/strategy_config.toml --start 2025-01-01 --end 2025-03-01 --no-chart",
+]
+agent_notes = [
+  "启用时机：需要快速验证策略逻辑、合约发现和参数效果时。",
+  "先看文件：src/backtesting、tests/backtesting。",
+  "常见误改：不要为回测单独复制一套策略逻辑，优先复用主策略契约与配置。",
+]

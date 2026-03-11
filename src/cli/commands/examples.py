@@ -1,20 +1,22 @@
-"""示例浏览命令。"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import typer
 
-from src.cli.common import abort, display_path, get_project_root
+from src.cli.common import (
+    abort,
+    build_artifact,
+    capture_cli_failure_json,
+    display_path,
+    emit_single_json,
+    get_project_root,
+)
 
 
 @dataclass(frozen=True)
 class ExampleInfo:
-    """示例元信息。"""
-
     name: str
     path: Path
     summary: str
@@ -40,16 +42,13 @@ def _load_examples() -> list[ExampleInfo]:
     if strategy_root.exists():
         roots.append(strategy_root)
 
-    if not roots:
-        return []
-
     items: list[ExampleInfo] = []
-    seen_names: set[str] = set()
+    seen: set[str] = set()
     for root in roots:
         for example_dir in sorted(path for path in root.iterdir() if path.is_dir()):
-            if example_dir.name in seen_names:
+            if example_dir.name in seen:
                 continue
-            seen_names.add(example_dir.name)
+            seen.add(example_dir.name)
             readme_path = example_dir / "README.md"
             readme = readme_path.read_text(encoding="utf-8") if readme_path.exists() else ""
             items.append(
@@ -63,15 +62,31 @@ def _load_examples() -> list[ExampleInfo]:
     return items
 
 
-def command(
-    name: Optional[str] = typer.Argument(None, help="示例名称；不传时列出全部示例。"),
-) -> None:
-    """列出内置示例，或查看某个示例的说明。"""
+def command(name: str | None = typer.Argument(None, help="示例名称；不传时列出全部示例。"), json_output: bool = False) -> None:
     examples = _load_examples()
     if not examples:
+        if json_output:
+            capture_cli_failure_json("examples", "未找到任何示例目录。")
         abort("未找到任何示例目录。")
 
     if name is None:
+        if json_output:
+            emit_single_json(
+                "examples",
+                ok=True,
+                data={
+                    "examples": [
+                        {
+                            "name": item.name,
+                            "path": display_path(item.path),
+                            "summary": item.summary,
+                        }
+                        for item in examples
+                    ]
+                },
+            )
+            return
+
         typer.echo("可用示例：")
         for item in examples:
             typer.echo(f"- {item.name}: {item.summary}")
@@ -81,11 +96,10 @@ def command(
     selected = next((item for item in examples if item.name == name), None)
     if selected is None:
         available_names = ", ".join(item.name for item in examples)
-        abort(f"未找到示例 {name}。可用示例: {available_names}")
-
-    typer.echo(f"示例: {selected.name}")
-    typer.echo(f"路径: {display_path(selected.path)}")
-    typer.echo(f"摘要: {selected.summary}")
+        message = f"未找到示例 {name}。可用示例：{available_names}"
+        if json_output:
+            capture_cli_failure_json("examples", message)
+        abort(message)
 
     key_files = [
         selected.path / "strategy_contract.toml",
@@ -93,10 +107,29 @@ def command(
         selected.path / "signal_service.py",
         selected.path / "README.md",
     ]
+    existing_key_files = [file_path for file_path in key_files if file_path.exists()]
+
+    if json_output:
+        emit_single_json(
+            "examples",
+            ok=True,
+            data={
+                "name": selected.name,
+                "path": display_path(selected.path),
+                "summary": selected.summary,
+                "readme": selected.readme,
+                "key_files": [display_path(file_path) for file_path in existing_key_files],
+            },
+            artifacts=tuple(build_artifact(file_path) for file_path in existing_key_files),
+        )
+        return
+
+    typer.echo(f"示例: {selected.name}")
+    typer.echo(f"路径: {display_path(selected.path)}")
+    typer.echo(f"摘要: {selected.summary}")
     typer.echo("关键文件：")
-    for file_path in key_files:
-        if file_path.exists():
-            typer.echo(f"- {display_path(file_path)}")
+    for file_path in existing_key_files:
+        typer.echo(f"- {display_path(file_path)}")
 
     if selected.readme:
         typer.echo("")

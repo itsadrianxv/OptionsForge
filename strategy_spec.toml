@@ -1,0 +1,25 @@
+[strategy]
+name = "main"
+summary = "AI-first scaffold workspace for developing and iterating option strategies."
+trading_target = "option-universe"
+strategy_type = "custom"
+run_mode = "standalone"
+
+[scaffold]
+capabilities = ["selection", "monitoring", "observability"]
+options = ["future-selection", "option-chain", "option-selector", "monitoring", "decision-observability"]
+preset = "custom"
+
+[logic]
+entry_rules = ["Define the minimum market state needed before opening a position.", "Describe the signal threshold or pattern that triggers entry."]
+exit_rules = ["Describe profit-taking and stop-loss conditions.", "State when positions must be flattened before expiry or session close."]
+selection_rules = ["Describe how the underlying and option chain are chosen.", "Explain strike, expiry, and option type preferences."]
+sizing_rules = ["Define the maximum position count and per-trade capital usage."]
+risk_rules = ["State hard limits for margin, Greeks, or portfolio concentration."]
+hedging_rules = ["Describe whether Delta or Vega hedging is enabled and when it should trigger."]
+observability_notes = ["List the key decisions and signals that must appear in logs or monitoring."]
+
+[acceptance]
+completion_checks = ["Focus navigation files are refreshed and point to the current manifest.", "Validation command succeeds for the current strategy configuration.", "Focus smoke tests pass for the current strategy."]
+focus_packs = ["kernel", "selection", "pricing", "risk", "execution", "hedging", "monitoring", "web", "deploy", "backtest"]
+test_scenarios = ["Validate generated contracts and strategy imports.", "Validate configuration and focus navigation assets.", "Run focus smoke tests for enabled packs."]

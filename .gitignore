@@ -11,6 +11,8 @@ TODO
 
 temp/
 
+artifacts/*/latest.json
+
 deploy/initdb/*.sql
 deploy/initdb/*.sql.gz
 deploy/initdb/*.sh

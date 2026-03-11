@@ -1,0 +1,21 @@
+key = "web"
+depends_on = ["kernel", "monitoring"]
+owned_paths = [
+  "src/web",
+  "tests/web",
+]
+config_keys = [
+  "runtime.log_dir",
+]
+test_selectors = [
+  "tests/web/test_monitor_template.py",
+  "tests/web/test_strategy_state_reader.py",
+]
+commands = [
+  "python src/web/app.py",
+]
+agent_notes = [
+  "启用时机：需要可视化监控页面、快照读取或前端展示时。",
+  "先看文件：src/web 与 tests/web。",
+  "常见误改：不要把策略判断逻辑挪到 Web 层，Web 只负责读状态和展示。",
+]

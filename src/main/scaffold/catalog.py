@@ -168,14 +168,19 @@ SERVICE_ACTIVATION_KEYS: tuple[str, ...] = (
 )
 
 BASE_COPY_PATHS: tuple[str, ...] = (
+    ".codex",
     ".dockerignore",
     ".env.example",
     ".gitignore",
+    "AGENTS.md",
+    "AGENTS_FOCUS.md",
     "LICENSE",
     "requirements.txt",
     "deploy",
     "doc",
+    "focus",
     "src",
+    "tests",
     "config/domain_service",
     "config/general",
     "config/logging",
@@ -526,4 +531,5 @@ def build_scaffold_plan(options: CreateOptions) -> ScaffoldPlan:
         hedging_config=dict(config_payload["hedging"]),
         indicator_kwargs=dict(config_payload["indicator_kwargs"]),
         signal_kwargs=dict(config_payload["signal_kwargs"]),
+        config_overrides=resolved_config_overrides,
     )

@@ -1,0 +1,25 @@
+key = "pricing"
+depends_on = ["kernel", "selection"]
+owned_paths = [
+  "src/strategy/domain/domain_service/pricing",
+  "config/domain_service/pricing",
+  "tests/strategy/domain/domain_service/test_pricing_engine.py",
+  "tests/strategy/domain/domain_service/test_pricing_engine_config_properties.py",
+  "tests/strategy/domain/domain_service/test_pricing_engine_properties.py",
+  "tests/strategy/domain/domain_service/test_pricing_properties.py",
+]
+config_keys = [
+  "service_activation.pricing_engine",
+  "pricing_engine",
+]
+test_selectors = [
+  "tests/strategy/domain/domain_service/test_pricing_engine.py",
+]
+commands = [
+  "option-scaffold validate --config config/strategy_config.toml",
+]
+agent_notes = [
+  "启用时机：需要定价、隐波或 Greeks 估值支持时。",
+  "先看文件：src/strategy/domain/domain_service/pricing 与 config/domain_service/pricing。",
+  "常见误改：不要把 pricing 参数散落在多个模块，优先通过 pricing pack 配置集中管理。",
+]
