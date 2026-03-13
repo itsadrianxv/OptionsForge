@@ -26,6 +26,22 @@ class CheckResult:
     detail: str
 
 
+@dataclass(frozen=True)
+class CliEntryMetadata:
+    """Canonical CLI entrypoint metadata for source checkouts."""
+
+    primary: str
+    installed_alias: str
+    cwd: str
+
+
+DEFAULT_CLI_ENTRY_METADATA = CliEntryMetadata(
+    primary="python -m src.cli.app",
+    installed_alias="option-scaffold",
+    cwd="repo-root",
+)
+
+
 def append_option(arguments: list[str], flag: str, value: Any | None) -> None:
     """Append a value-bearing flag."""
     if value is None:
@@ -37,6 +53,37 @@ def append_flag(arguments: list[str], flag: str, enabled: bool) -> None:
     """Append a boolean flag."""
     if enabled:
         arguments.append(flag)
+
+
+def get_cli_entry_metadata() -> CliEntryMetadata:
+    """Return the canonical CLI entrypoint metadata."""
+    return DEFAULT_CLI_ENTRY_METADATA
+
+
+def cli_entry_metadata_payload(metadata: CliEntryMetadata | None = None) -> dict[str, str]:
+    """Convert CLI metadata into a JSON-friendly mapping."""
+    resolved = metadata or get_cli_entry_metadata()
+    return {
+        "primary": resolved.primary,
+        "installed_alias": resolved.installed_alias,
+        "cwd": resolved.cwd,
+    }
+
+
+def render_cli_command(command: str = "", *, metadata: CliEntryMetadata | None = None, use_alias: bool = False) -> str:
+    """Render a CLI command using the canonical source-checkout entrypoint."""
+    resolved = metadata or get_cli_entry_metadata()
+    prefix = resolved.installed_alias if use_alias else resolved.primary
+    normalized = str(command).strip()
+    if not normalized:
+        return prefix
+    return f"{prefix} {normalized}"
+
+
+def render_cli_commands(commands: Sequence[str], *, metadata: CliEntryMetadata | None = None) -> tuple[str, ...]:
+    """Render multiple CLI command fragments."""
+    resolved = metadata or get_cli_entry_metadata()
+    return tuple(render_cli_command(command, metadata=resolved) for command in commands)
 
 
 def flag_enabled(value: Any) -> bool:

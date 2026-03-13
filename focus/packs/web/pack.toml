@@ -11,7 +11,8 @@ test_selectors = [
   "tests/web/test_monitor_template.py",
   "tests/web/test_strategy_state_reader.py",
 ]
-commands = [
+cli_commands = []
+shell_commands = [
   "python src/web/app.py",
 ]
 agent_notes = [

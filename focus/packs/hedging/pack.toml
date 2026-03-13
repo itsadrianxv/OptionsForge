@@ -15,9 +15,10 @@ test_selectors = [
   "tests/strategy/domain/domain_service/test_delta_hedging_service.py",
   "tests/strategy/domain/domain_service/test_vega_hedging_service.py",
 ]
-commands = [
-  "option-scaffold run --config config/strategy_config.toml --paper",
+cli_commands = [
+  "run --config config/strategy_config.toml --paper",
 ]
+shell_commands = []
 agent_notes = [
   "Use when: the task changes Delta hedging, Vega hedging, or hedging thresholds.",
   "Read first: src/strategy/domain/domain_service/hedging and the hedging section in config/strategy_config.toml.",

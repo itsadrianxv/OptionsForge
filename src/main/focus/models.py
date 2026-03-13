@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from src.cli.common import CliEntryMetadata
+
 
 @dataclass(frozen=True)
 class StrategyMetadata:
@@ -28,6 +30,7 @@ class FocusManifest:
     manifest_path: Path
     strategy: StrategyMetadata
     packs: tuple[str, ...]
+    cli: CliEntryMetadata
     entrypoints: dict[str, str]
     editable_paths: tuple[str, ...]
     reference_paths: tuple[str, ...]
@@ -43,6 +46,8 @@ class PackDefinition:
     owned_paths: tuple[str, ...]
     config_keys: tuple[str, ...]
     test_selectors: tuple[str, ...]
+    cli_commands: tuple[str, ...]
+    shell_commands: tuple[str, ...]
     commands: tuple[str, ...]
     agent_notes: tuple[str, ...]
 

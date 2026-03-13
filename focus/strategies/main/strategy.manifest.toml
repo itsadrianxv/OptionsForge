@@ -10,16 +10,21 @@ strategy_type = "custom"
 run_mode = "standalone"
 summary = "Agent-first strategy workspace for developing and iterating option strategies."
 
+[cli]
+primary = "python -m src.cli.app"
+installed_alias = "option-scaffold"
+cwd = "repo-root"
+
 [entrypoints]
-run = "option-scaffold run --config config/strategy_config.toml --paper"
-backtest = "option-scaffold backtest --config config/strategy_config.toml --start 2025-01-01 --end 2025-03-01 --no-chart"
-validate = "option-scaffold validate --config config/strategy_config.toml"
+run = "python -m src.cli.app run --config config/strategy_config.toml --paper"
+backtest = "python -m src.cli.app backtest --config config/strategy_config.toml --start 2025-01-01 --end 2025-03-01 --no-chart"
+validate = "python -m src.cli.app validate --config config/strategy_config.toml"
 monitor = "python src/web/app.py"
 
 [acceptance]
 summary = "Agent-first strategy workspace for developing and iterating option strategies."
 completion_checks = ["Focus navigation files are refreshed and point to the current manifest.", "Validation command succeeds for the current strategy configuration.", "Focus smoke tests pass for the current strategy."]
-minimal_test_command = "option-scaffold focus test"
+minimal_test_command = "python -m src.cli.app focus test"
 test_selectors = ["tests/main/focus", "tests/cli/test_app.py"]
 key_logs = ["Validation passed", "Doctor completed", "Focus assets refreshed"]
 key_outputs = [".focus/SYSTEM_MAP.md", ".focus/ACTIVE_SURFACE.md", ".focus/TASK_BRIEF.md", ".focus/COMMANDS.md", ".focus/TASK_ROUTER.md", ".focus/TEST_MATRIX.md", ".focus/context.json"]

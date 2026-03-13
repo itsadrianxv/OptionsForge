@@ -19,9 +19,10 @@ test_selectors = [
   "tests/strategy/domain/domain_service/risk/test_risk_integration.py",
   "tests/strategy/domain/domain_service/combination/test_combination_integration.py",
 ]
-commands = [
-  "option-scaffold validate --config config/strategy_config.toml",
+cli_commands = [
+  "validate --config config/strategy_config.toml",
 ]
+shell_commands = []
 agent_notes = [
   "Use when: the task changes position sizing, portfolio Greeks, stop logic, or risk budgets.",
   "Read first: src/strategy/domain/domain_service/risk and src/strategy/domain/domain_service/combination.",

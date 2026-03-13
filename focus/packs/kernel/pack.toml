@@ -42,10 +42,11 @@ test_selectors = [
   "tests/strategy/infrastructure/utils/test_date_calculator.py",
   "tests/cli/test_app.py",
 ]
-commands = [
-  "option-scaffold validate --config config/strategy_config.toml",
-  "option-scaffold run --config config/strategy_config.toml --paper",
+cli_commands = [
+  "validate --config config/strategy_config.toml",
+  "run --config config/strategy_config.toml --paper",
 ]
+shell_commands = []
 agent_notes = [
   "Use when: every strategy task depends on the kernel pack.",
   "Read first: focus manifest, config/strategy_config.toml, src/strategy/strategy_entry.py.",

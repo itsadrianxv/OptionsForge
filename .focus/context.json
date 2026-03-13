@@ -19,14 +19,19 @@
     "deploy",
     "backtest"
   ],
+  "cli": {
+    "primary": "python -m src.cli.app",
+    "installed_alias": "option-scaffold",
+    "cwd": "repo-root"
+  },
   "recommended_first_pass": {
     "pack": "selection",
     "entry": "src/strategy/domain/domain_service/selection"
   },
   "entrypoints": {
-    "run": "option-scaffold run --config config/strategy_config.toml --paper",
-    "backtest": "option-scaffold backtest --config config/strategy_config.toml --start 2025-01-01 --end 2025-03-01 --no-chart",
-    "validate": "option-scaffold validate --config config/strategy_config.toml",
+    "run": "python -m src.cli.app run --config config/strategy_config.toml --paper",
+    "backtest": "python -m src.cli.app backtest --config config/strategy_config.toml --start 2025-01-01 --end 2025-03-01 --no-chart",
+    "validate": "python -m src.cli.app validate --config config/strategy_config.toml",
     "monitor": "python src/web/app.py"
   },
   "surfaces": {
@@ -84,7 +89,9 @@
       "tests/strategy/infrastructure/monitoring/test_strategy_monitor_serialization.py",
       "tests/strategy/infrastructure/persistence/test_state_repository.py",
       "tests/web/test_monitor_template.py",
-      "tests/web/test_strategy_state_reader.py"
+      "tests/web/test_strategy_state_reader.py",
+      "tests/backtesting/test_cli.py",
+      "tests/backtesting/test_runner.py"
     ],
     "full_selectors": [
       "tests/main/focus",
@@ -103,21 +110,16 @@
       "tests/strategy/infrastructure/monitoring/test_strategy_monitor_serialization.py",
       "tests/strategy/infrastructure/persistence/test_state_repository.py",
       "tests/web/test_monitor_template.py",
-      "tests/web/test_strategy_state_reader.py"
+      "tests/web/test_strategy_state_reader.py",
+      "tests/backtesting/test_cli.py",
+      "tests/backtesting/test_runner.py"
     ],
     "smoke_keyword_expression": "not property and not pbt",
     "smoke_filter_descriptions": [
       "Exclude test nodes whose names contain `property`.",
       "Exclude test nodes whose names contain `pbt`."
     ],
-    "skipped_packs": [
-      {
-        "pack_key": "backtest",
-        "missing_modules": [
-          "chinese_calendar"
-        ]
-      }
-    ]
+    "skipped_packs": []
   },
   "generated_docs": {
     "system_map": ".focus/SYSTEM_MAP.md",
@@ -135,7 +137,7 @@
       "Validation command succeeds for the current strategy configuration.",
       "Focus smoke tests pass for the current strategy."
     ],
-    "minimal_test_command": "option-scaffold focus test",
+    "minimal_test_command": "python -m src.cli.app focus test",
     "test_selectors": [
       "tests/main/focus",
       "tests/cli/test_app.py"

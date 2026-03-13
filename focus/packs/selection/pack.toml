@@ -13,9 +13,10 @@ config_keys = [
 test_selectors = [
   "tests/strategy/domain/domain_service/test_selection_integration.py",
 ]
-commands = [
-  "option-scaffold validate --config config/strategy_config.toml",
+cli_commands = [
+  "validate --config config/strategy_config.toml",
 ]
+shell_commands = []
 agent_notes = [
   "Use when: the task changes underlying selection, option-chain handling, or contract candidate rules.",
   "Read first: src/strategy/domain/domain_service/selection and config/domain_service/selection.",

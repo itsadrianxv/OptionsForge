@@ -15,9 +15,10 @@ test_selectors = [
   "tests/strategy/infrastructure/monitoring/test_strategy_monitor_serialization.py",
   "tests/strategy/infrastructure/persistence/test_state_repository.py",
 ]
-commands = [
-  "option-scaffold run --config config/strategy_config.toml --paper",
+cli_commands = [
+  "run --config config/strategy_config.toml --paper",
 ]
+shell_commands = []
 agent_notes = [
   "Use when: the task changes monitoring, snapshots, persistence, or observability output.",
   "Read first: src/strategy/infrastructure/monitoring and src/strategy/infrastructure/persistence.",

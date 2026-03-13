@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from src.cli.common import render_cli_command
+
 from .models import FocusContext, FocusTestMatrix, PackDefinition
 
 PACK_TASK_LABELS: dict[str, str] = {
@@ -164,11 +166,13 @@ def render_system_map(context: FocusContext) -> str:
         "",
         "## Runtime Chain",
         "",
-        "1. `option-scaffold` is the unified command entrypoint.",
-        "2. `src/cli/app.py` routes commands to `forge`, `focus`, `run`, `backtest`, `validate`, and supporting commands.",
-        "3. `src/main/main.py` orchestrates runtime startup.",
-        "4. `src/strategy/strategy_entry.py` connects application, domain, and infrastructure layers.",
-        "5. Enabled packs extend the runtime with domain logic, monitoring, backtest, web, and deploy capabilities.",
+        f"1. Source-checkout default: `{context.manifest.cli.primary}`.",
+        f"2. Installed alias: `{context.manifest.cli.installed_alias}`.",
+        f"3. Run CLI commands from `{context.manifest.cli.cwd}`.",
+        "4. `src/cli/app.py` routes commands to `forge`, `focus`, `run`, `backtest`, `validate`, and supporting commands.",
+        "5. `src/main/main.py` orchestrates runtime startup.",
+        "6. `src/strategy/strategy_entry.py` connects application, domain, and infrastructure layers.",
+        "7. Enabled packs extend the runtime with domain logic, monitoring, backtest, web, and deploy capabilities.",
         "",
         "## Pack Notes",
         "",
@@ -299,7 +303,6 @@ def render_test_matrix(
     smoke_test_command: str,
     full_test_command: str,
 ) -> str:
-    del context
     lines = [
         "# TEST MATRIX",
         "",
@@ -339,15 +342,14 @@ def render_commands(
     smoke_test_command: str,
     full_test_command: str,
 ) -> str:
-    del context
     lines = [
         "# COMMANDS",
         "",
         "## Focus Commands",
         "",
-        "- `option-scaffold forge`",
-        "- `option-scaffold focus show`",
-        "- `option-scaffold focus refresh`",
+        f"- `{render_cli_command('forge', metadata=context.manifest.cli)}`",
+        f"- `{render_cli_command('focus show', metadata=context.manifest.cli)}`",
+        f"- `{render_cli_command('focus refresh', metadata=context.manifest.cli)}`",
         f"- `{smoke_test_command}`",
         f"- `{full_test_command}`",
         "",

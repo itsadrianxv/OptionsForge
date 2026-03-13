@@ -14,6 +14,7 @@ from typer.testing import CliRunner
 
 from src import __version__
 from src.cli.app import app
+from src.cli.common import render_cli_command
 from src.main.focus.service import initialize_focus
 from tests.focus_testkit import build_fake_focus_repo
 
@@ -108,9 +109,9 @@ def test_create_help_uses_refined_copy() -> None:
     assert "默认快速创建" in result.stdout
     assert "预设模板" in result.stdout
     assert "精细能力控制" in result.stdout
-    assert "option-scaffold create alpha_lab" in result.stdout
-    assert "option-scaffold create alpha_lab -y" in result.stdout
-    assert "option-scaffold create alpha_lab --preset ema-cross -d .\\projects" in result.stdout
+    assert render_cli_command("create alpha_lab") in result.stdout
+    assert render_cli_command("create alpha_lab -y") in result.stdout
+    assert render_cli_command(r"create alpha_lab --preset ema-cross -d .\projects") in result.stdout
     assert "项目输出父目录；最终会生成到 <destination>/<name>/。" in result.stdout
     assert "按能力组显式开启功能，可重复传入；适合非交互模式精确控制。" in result.stdout
     assert "按二级子能力显式关闭，可重复传入；用于更细粒度裁剪。" in result.stdout
@@ -152,13 +153,13 @@ def test_create_command_generates_project_workspace(tmp_path: Path) -> None:
     assert "- 策略包：src/strategies/alpha_lab" in result.stdout
     assert "- 主配置：" in result.stdout
     assert "cd alpha_lab" in result.stdout
-    assert "option-scaffold validate --config config/strategy_config.toml" in result.stdout
-    assert "option-scaffold run --config config/strategy_config.toml" in result.stdout
+    assert render_cli_command("validate --config config/strategy_config.toml") in result.stdout
+    assert render_cli_command("run --config config/strategy_config.toml") in result.stdout
 
     readme = (created_dir / "README.md").read_text(encoding="utf-8")
     assert "cd alpha_lab" in readme
-    assert "option-scaffold validate --config config/strategy_config.toml" in readme
-    assert "option-scaffold run --config config/strategy_config.toml" in readme
+    assert render_cli_command("validate --config config/strategy_config.toml") in readme
+    assert render_cli_command("run --config config/strategy_config.toml") in readme
 
 
 def test_create_command_uses_alpha_lab_as_default_name_when_omitted(tmp_path: Path) -> None:
@@ -427,8 +428,8 @@ def test_focus_show_includes_recommended_first_pass(monkeypatch, tmp_path: Path)
     assert result.exit_code == 0
     assert "Recommended First Pass:" in result.stdout
     assert "- pack:" in result.stdout
-    assert "- smoke: option-scaffold focus test" in result.stdout
-    assert "- full: option-scaffold focus test --full" in result.stdout
+    assert f"- smoke: {render_cli_command('focus test')}" in result.stdout
+    assert f"- full: {render_cli_command('focus test --full')}" in result.stdout
     assert "Editable Surface:" in result.stdout
     assert "Support Surface:" in result.stdout
     assert "Frozen Surface:" in result.stdout

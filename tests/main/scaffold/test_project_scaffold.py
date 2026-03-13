@@ -6,6 +6,7 @@ import tomllib
 import pytest
 
 import src.main.scaffold.prompt as prompt_module
+from src.cli.common import render_cli_command
 from src.main.scaffold.models import CapabilityKey, CapabilityOptionKey, CreateOptions
 from src.main.scaffold.project import create_project_scaffold
 
@@ -44,8 +45,8 @@ def test_create_project_scaffold_generates_custom_workspace(tmp_path: Path) -> N
 
     readme = (project_root / "README.md").read_text(encoding="utf-8")
     assert "cd alpha_lab" in readme
-    assert "option-scaffold validate --config config/strategy_config.toml" in readme
-    assert "option-scaffold run --config config/strategy_config.toml" in readme
+    assert render_cli_command("validate --config config/strategy_config.toml") in readme
+    assert render_cli_command("run --config config/strategy_config.toml") in readme
 
 
 def test_create_project_scaffold_uses_alpha_lab_as_default_name(tmp_path: Path) -> None:

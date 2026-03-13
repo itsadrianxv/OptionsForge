@@ -13,8 +13,9 @@ from src.cli.common import (
     display_path,
     emit_single_json,
     flag_enabled,
+    render_cli_command,
 )
-from src.main.scaffold.models import CapabilityKey, CapabilityOptionKey, CreateOptions
+from src.main.scaffold.models import CapabilityKey, CapabilityOptionKey, CreateOptions, ScaffoldPlan
 from src.main.scaffold.next_steps import build_next_step_commands
 from src.main.scaffold.project import create_project_scaffold
 
@@ -22,15 +23,15 @@ CREATE_COMMAND_HELP = "创建整仓库级期权策略项目脚手架，支持交
 CREATE_COMMAND_EXAMPLES = (
     "常用示例：\n"
     "  交互创建\n"
-    "    option-scaffold create alpha_lab\n"
+    f"    {render_cli_command('create alpha_lab')}\n"
     "  默认快速创建\n"
-    "    option-scaffold create alpha_lab -y\n"
+    f"    {render_cli_command('create alpha_lab -y')}\n"
     "  预设模板\n"
-    "    option-scaffold create alpha_lab --preset ema-cross -d .\\projects\n"
+    f"    {render_cli_command('create alpha_lab --preset ema-cross -d .\\projects')}\n"
     "  精细能力控制\n"
-    "    option-scaffold create alpha_lab --preset custom --with hedging --with-option vega-hedging --no-interactive\n"
+    f"    {render_cli_command('create alpha_lab --preset custom --with hedging --with-option vega-hedging --no-interactive')}\n"
     "  非交互配置参数\n"
-    "    option-scaffold create alpha_lab --preset ema-cross --set setting.max_positions=8 --set signal_kwargs.option_type=put --no-interactive"
+    f"    {render_cli_command('create alpha_lab --preset ema-cross --set setting.max_positions=8 --set signal_kwargs.option_type=put --no-interactive')}"
 )
 CREATE_NAME_HELP = "项目名称；省略时会进入交互式向导询问。"
 CREATE_DESTINATION_HELP = "项目输出父目录；最终会生成到 <destination>/<name>/。"
@@ -55,7 +56,7 @@ def _to_options(values: Iterable[str]) -> tuple[CapabilityOptionKey, ...]:
     return tuple(CapabilityOptionKey(value) for value in values)
 
 
-def _emit_result(plan, *, json_output: bool) -> None:
+def _emit_result(plan: ScaffoldPlan, *, json_output: bool) -> None:
     next_steps = build_next_step_commands(plan.project_root.name)
     if json_output:
         emit_single_json(

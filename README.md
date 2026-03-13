@@ -35,7 +35,7 @@
 
 ## 项目简介
 
-`option-trading-infra` 是一个基于 `vn.py` 的期权策略脚手架，目标不是直接提供“现成盈利策略”，而是提供一套已经拆好层、配好配置、接好运行与监控入口的工程底座。
+`option-strategy-scaffold` 是一个基于 `vn.py` 的期权策略脚手架，目标不是直接提供“现成盈利策略”，而是提供一套已经拆好层、配好配置、接好运行与监控入口的工程底座。
 
 你可以在现有骨架上聚焦改造领域服务，例如选合约、信号计算、对冲、组合管理、风控与执行逻辑，而不必从零重复搭建工程基础设施。
 
@@ -43,13 +43,16 @@
 
 The recommended AGENT workflow is now built around `forge`, `strategy_spec.toml`, and structured command output.
 
-1. Start with `option-scaffold forge --json` when you need to create or refresh AGENT assets.
+From a source checkout, run commands from the repository root with `python -m src.cli.app ...`.
+If the package is installed into the active environment, the equivalent short alias is `option-scaffold ...`.
+
+1. Start with `python -m src.cli.app forge --json` when you need to create or refresh AGENT assets.
 2. Read `strategy_spec.toml` for high-level intent.
 3. Read `.focus/context.json` for the current machine-readable context contract.
 4. Use `.focus/*.md` only as human-readable navigation companions.
 5. Edit only files inside the current editable surface.
-6. Verify with `option-scaffold validate --json` and `option-scaffold focus test --json`.
-7. Use `option-scaffold backtest --json` or `option-scaffold run --json` only when the task requires execution evidence or runtime behavior.
+6. Verify with `python -m src.cli.app validate --json` and `python -m src.cli.app focus test --json`.
+7. Use `python -m src.cli.app backtest --json` or `python -m src.cli.app run --json` only when the task requires execution evidence or runtime behavior.
 
 Machine-readable AGENT assets:
 
@@ -77,7 +80,7 @@ Machine-readable AGENT assets:
 - 运行时：默认 Docker 镜像基于 `Python 3.12`
 - Web 监控：`Flask + Socket.IO`，默认端口 `5007`
 - 默认部署：`runner + monitor + PostgreSQL`
-- Unified CLI: `option-scaffold` (recommended AGENT entrypoint: `forge`; structured output: `--json`)
+- Source-checkout CLI: `python -m src.cli.app` (installed alias: `option-scaffold`; recommended AGENT entrypoint: `forge`; structured output: `--json`)
 - 文档资产：`doc/` 下包含架构、开发说明与用户手册
 <!-- readme-gen:end:highlights -->
 
@@ -161,24 +164,24 @@ Copy-Item .env.example .env
 3. Inspect the CLI and refresh AGENT assets:
 
 ```powershell
-option-scaffold --help
-option-scaffold --version
-option-scaffold forge --json
-option-scaffold focus show --json
+python -m src.cli.app --help
+python -m src.cli.app --version
+python -m src.cli.app forge --json
+python -m src.cli.app focus show --json
 ```
 
 4. Validate the current workspace through structured output:
 
 ```powershell
-option-scaffold doctor --json
-option-scaffold validate --config config/strategy_config.toml --json
-option-scaffold focus test --json
+python -m src.cli.app doctor --json
+python -m src.cli.app validate --config config/strategy_config.toml --json
+python -m src.cli.app focus test --json
 ```
 
 5. 启动策略主入口（这里示例使用更安全的模拟交易模式）：
 
 ```powershell
-option-scaffold run --mode standalone --config config/strategy_config.toml --paper
+python -m src.cli.app run --mode standalone --config config/strategy_config.toml --paper
 ```
 
 7. 如需单独启动监控页面：
@@ -220,59 +223,59 @@ pytest -c config/pytest.ini
 ### Refresh AGENT assets
 
 ```powershell
-option-scaffold forge --json
+python -m src.cli.app forge --json
 ```
 
 ### Inspect current AGENT context
 
 ```powershell
-option-scaffold focus show --json
+python -m src.cli.app focus show --json
 ```
 
 ### Validate current strategy config
 
 ```powershell
-option-scaffold validate --config config/strategy_config.toml --json
+python -m src.cli.app validate --config config/strategy_config.toml --json
 ```
 
 ### Run focus verification
 
 ```powershell
-option-scaffold focus test --json
+python -m src.cli.app focus test --json
 ```
 
 ### 运行回测
 
 ```powershell
-option-scaffold backtest --config config/strategy_config.toml --start 2025-01-01 --end 2025-03-01 --no-chart --json
+python -m src.cli.app backtest --config config/strategy_config.toml --start 2025-01-01 --end 2025-03-01 --no-chart --json
 ```
 
 ### Start runtime workflow
 
 ```powershell
-option-scaffold run --mode daemon --config config/strategy_config.toml --json
+python -m src.cli.app run --mode daemon --config config/strategy_config.toml --json
 ```
 
 ### 初始化新策略骨架
 
 ```powershell
-option-scaffold init ema_breakout --destination example
+python -m src.cli.app init ema_breakout --destination example
 ```
 
 ### 创建按需装配的整仓库脚手架
 
 ```powershell
-option-scaffold create alpha_lab -y
+python -m src.cli.app create alpha_lab -y
 ```
 
 ```powershell
-option-scaffold create alpha_lab
+python -m src.cli.app create alpha_lab
 ```
 
 如果想在顶层能力组之下继续细化二级子选项，也可以这样写：
 
 ```powershell
-option-scaffold create alpha_lab --preset custom --with greeks-risk --with hedging --with-option vega-hedging --without-option delta-hedging --no-interactive
+python -m src.cli.app create alpha_lab --preset custom --with greeks-risk --with hedging --with-option vega-hedging --without-option delta-hedging --no-interactive
 ```
 
 `create` 会在生成前自动校验二级子选项之间的依赖与禁配关系，并直接拒绝语义冲突的组合。
@@ -281,8 +284,8 @@ option-scaffold create alpha_lab --preset custom --with greeks-risk --with hedgi
 ### 浏览内置示例
 
 ```powershell
-option-scaffold examples
-option-scaffold examples ema_cross_example
+python -m src.cli.app examples
+python -m src.cli.app examples ema_cross_example
 ```
 <!-- readme-gen:end:commands -->
 

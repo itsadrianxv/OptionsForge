@@ -1,6 +1,6 @@
 # CLI Usage Guide
 
-This guide describes the current AGENT-first CLI workflow for `option-scaffold`.
+This guide describes the current AGENT-first CLI workflow for the source-checkout entrypoint `python -m src.cli.app`.
 
 It is intentionally aligned with `AGENTS_FOCUS.md`, `strategy_spec.toml`, `.focus/context.json`, and the generated acceptance assets.
 
@@ -9,8 +9,11 @@ It is intentionally aligned with `AGENTS_FOCUS.md`, `strategy_spec.toml`, `.focu
 The recommended AGENT entry point is:
 
 ```powershell
-option-scaffold forge --json
+python -m src.cli.app forge --json
 ```
+
+Run commands from the repository root when working from source.
+If the package is installed into the active environment, the equivalent short alias is `option-scaffold ...`.
 
 Use `forge` when you need to:
 
@@ -56,11 +59,11 @@ Prefer structured output by default.
 Use `--json` on single-response commands:
 
 ```powershell
-option-scaffold forge --json
-option-scaffold focus show --json
-option-scaffold validate --json
-option-scaffold doctor --json
-option-scaffold examples --json
+python -m src.cli.app forge --json
+python -m src.cli.app focus show --json
+python -m src.cli.app validate --json
+python -m src.cli.app doctor --json
+python -m src.cli.app examples --json
 ```
 
 ### NDJSON streams
@@ -68,8 +71,8 @@ option-scaffold examples --json
 Use `--json` on long-running commands to receive NDJSON events:
 
 ```powershell
-option-scaffold run --json
-option-scaffold backtest --json
+python -m src.cli.app run --json
+python -m src.cli.app backtest --json
 ```
 
 ## Canonical AGENT Loop
@@ -77,16 +80,16 @@ option-scaffold backtest --json
 The canonical AGENT loop is:
 
 ```powershell
-option-scaffold forge --json
-option-scaffold validate --json
-option-scaffold focus test --json
+python -m src.cli.app forge --json
+python -m src.cli.app validate --json
+python -m src.cli.app focus test --json
 ```
 
 Add execution evidence only when needed:
 
 ```powershell
-option-scaffold backtest --json
-option-scaffold run --json
+python -m src.cli.app backtest --json
+python -m src.cli.app run --json
 ```
 
 ## Common Command Patterns
@@ -94,31 +97,31 @@ option-scaffold run --json
 ### Refresh AGENT assets
 
 ```powershell
-option-scaffold forge --json
+python -m src.cli.app forge --json
 ```
 
 ### Inspect current context
 
 ```powershell
-option-scaffold focus show --json
+python -m src.cli.app focus show --json
 ```
 
 ### Validate current config
 
 ```powershell
-option-scaffold validate --config config/strategy_config.toml --json
+python -m src.cli.app validate --config config/strategy_config.toml --json
 ```
 
 ### Run focus verification
 
 ```powershell
-option-scaffold focus test --json
+python -m src.cli.app focus test --json
 ```
 
 ### Run backtest evidence
 
 ```powershell
-option-scaffold backtest --config config/strategy_config.toml --start 2025-01-01 --end 2025-03-01 --no-chart --json
+python -m src.cli.app backtest --config config/strategy_config.toml --start 2025-01-01 --end 2025-03-01 --no-chart --json
 ```
 
 ## Editing Boundary Rule
@@ -146,5 +149,5 @@ Default verification order:
 Plain-text output remains available, but AGENT workflows should prefer structured output. If documentation or generated AGENT assets drift, update the generator/source layer and rerun:
 
 ```powershell
-option-scaffold forge
+python -m src.cli.app forge
 ```

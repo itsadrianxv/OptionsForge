@@ -18,25 +18,28 @@ The goal is to keep all AGENT-facing guidance aligned around one workflow and on
 
 The default AGENT workflow is:
 
-1. Run `option-scaffold forge` when you need to create or refresh AGENT assets.
+From a source checkout, execute commands from the repository root with `python -m src.cli.app ...`.
+If the package is installed into the active environment, the equivalent short alias is `option-scaffold ...`.
+
+1. Run `python -m src.cli.app forge` when you need to create or refresh AGENT assets.
 2. Inspect `strategy_spec.toml` and `.focus/context.json`.
 3. Edit only files inside the current editable surface.
-4. Run `option-scaffold validate --json`.
-5. Run `option-scaffold focus test --json`.
-6. Run `option-scaffold backtest --json` only when strategy behavior needs execution evidence.
-7. Run `option-scaffold run --json` only for runtime workflows, not as the default edit-validation loop.
+4. Run `python -m src.cli.app validate --json`.
+5. Run `python -m src.cli.app focus test --json`.
+6. Run `python -m src.cli.app backtest --json` only when strategy behavior needs execution evidence.
+7. Run `python -m src.cli.app run --json` only for runtime workflows, not as the default edit-validation loop.
 
 If a task is local and small, the shortest safe loop is:
 
 ```powershell
-option-scaffold validate --json
-option-scaffold focus test --json
+python -m src.cli.app validate --json
+python -m src.cli.app focus test --json
 ```
 
 If the task changes workflow intent, focus scope, or AGENT assets, start with:
 
 ```powershell
-option-scaffold forge --json
+python -m src.cli.app forge --json
 ```
 
 ## Source Of Truth Hierarchy
@@ -97,18 +100,18 @@ Prefer structured output by default.
 
 Use `--json` and consume the standard JSON envelope:
 
-- `option-scaffold forge --json`
-- `option-scaffold focus show --json`
-- `option-scaffold validate --json`
-- `option-scaffold doctor --json`
-- `option-scaffold examples --json`
+- `python -m src.cli.app forge --json`
+- `python -m src.cli.app focus show --json`
+- `python -m src.cli.app validate --json`
+- `python -m src.cli.app doctor --json`
+- `python -m src.cli.app examples --json`
 
 ### Long-running commands
 
 Use `--json` and consume NDJSON event streams:
 
-- `option-scaffold run --json`
-- `option-scaffold backtest --json`
+- `python -m src.cli.app run --json`
+- `python -m src.cli.app backtest --json`
 
 The AGENT default should be:
 
@@ -119,10 +122,10 @@ The AGENT default should be:
 
 Use this default verification order:
 
-1. `option-scaffold validate --json`
-2. `option-scaffold focus test --json`
-3. `option-scaffold backtest --json` only when behavior or parameter effects need execution evidence
-4. `option-scaffold run --json` only when the task is about runtime lifecycle, monitoring, or long-lived execution
+1. `python -m src.cli.app validate --json`
+2. `python -m src.cli.app focus test --json`
+3. `python -m src.cli.app backtest --json` only when behavior or parameter effects need execution evidence
+4. `python -m src.cli.app run --json` only when the task is about runtime lifecycle, monitoring, or long-lived execution
 
 Interpret the outputs from:
 
@@ -175,7 +178,7 @@ Every AGENT delivery should state:
 If you change AGENT workflow wording or runtime navigation semantics, update the generator/source layer and then regenerate:
 
 ```powershell
-option-scaffold forge
+python -m src.cli.app forge
 ```
 
 Only commit generated AGENT assets after the generator/source changes that produce them are also included.

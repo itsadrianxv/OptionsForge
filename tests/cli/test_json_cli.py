@@ -6,6 +6,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from src.cli.app import app
+from src.cli.common import cli_entry_metadata_payload
 from src.main.focus.service import initialize_focus
 from tests.focus_testkit import build_fake_focus_repo
 
@@ -54,6 +55,7 @@ def test_focus_show_json_matches_context_payload(tmp_path: Path, monkeypatch) ->
     payload = json.loads(result.stdout)
     assert payload["ok"] is True
     assert payload["data"]["strategy"]["name"] == "alpha"
+    assert payload["data"]["cli"] == cli_entry_metadata_payload()
     assert payload["data"]["generated_docs"]["context_json"] == ".focus/context.json"
 
 

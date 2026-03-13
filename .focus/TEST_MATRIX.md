@@ -2,7 +2,7 @@
 
 ## Smoke
 
-- Command: `option-scaffold focus test`
+- Command: `python -m src.cli.app focus test`
 - Notes: smoke uses the same selectors as full mode, plus keyword filters.
 - Selectors:
   - `tests/main/focus`
@@ -22,13 +22,15 @@
   - `tests/strategy/infrastructure/persistence/test_state_repository.py`
   - `tests/web/test_monitor_template.py`
   - `tests/web/test_strategy_state_reader.py`
+  - `tests/backtesting/test_cli.py`
+  - `tests/backtesting/test_runner.py`
 - Keyword filters:
   - Exclude test nodes whose names contain `property`.
   - Exclude test nodes whose names contain `pbt`.
 
 ## Full
 
-- Command: `option-scaffold focus test --full`
+- Command: `python -m src.cli.app focus test --full`
 - Selectors:
   - `tests/main/focus`
   - `tests/cli/test_app.py`
@@ -47,7 +49,9 @@
   - `tests/strategy/infrastructure/persistence/test_state_repository.py`
   - `tests/web/test_monitor_template.py`
   - `tests/web/test_strategy_state_reader.py`
+  - `tests/backtesting/test_cli.py`
+  - `tests/backtesting/test_runner.py`
 
 ## Skipped Packs
 
-- `backtest`: missing dependency `chinese_calendar`
+- none

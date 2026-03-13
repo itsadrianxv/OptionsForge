@@ -29,7 +29,7 @@
 ## Acceptance
 
 - Summary: Agent-first strategy workspace for developing and iterating option strategies.
-- Minimal verification command: `option-scaffold focus test`
+- Minimal verification command: `python -m src.cli.app focus test`
 - Focus navigation files are refreshed and point to the current manifest.
 - Validation command succeeds for the current strategy configuration.
 - Focus smoke tests pass for the current strategy.

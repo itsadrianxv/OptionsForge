@@ -7,6 +7,13 @@ from pathlib import Path
 import re
 import tomllib
 
+from src.cli.common import (
+    CliEntryMetadata,
+    cli_entry_metadata_payload,
+    get_cli_entry_metadata,
+    render_cli_command,
+    render_cli_commands,
+)
 from .models import (
     AcceptanceSpec,
     FocusContext,
@@ -159,11 +166,22 @@ def _validate_selector(repo_root: Path, selector: str, field_name: str) -> None:
     _validate_repo_path(repo_root, base_path, field_name)
 
 
+def _render_pack_commands(
+    cli_commands: tuple[str, ...],
+    shell_commands: tuple[str, ...],
+    *,
+    cli_metadata: CliEntryMetadata | None = None,
+) -> tuple[str, ...]:
+    rendered_cli_commands = render_cli_commands(cli_commands, metadata=cli_metadata or get_cli_entry_metadata())
+    return (*rendered_cli_commands, *shell_commands)
+
+
 def load_pack_catalog(repo_root: Path) -> dict[str, PackDefinition]:
     pack_root = repo_root / PACKS_ROOT
     if not pack_root.exists():
         raise ValueError(f"未找到 pack 元数据目录: {PACKS_ROOT.as_posix()}")
 
+    cli_metadata = get_cli_entry_metadata()
     catalog: dict[str, PackDefinition] = {}
     for pack_key in DEFAULT_PACK_KEYS:
         pack_path = pack_root / pack_key / "pack.toml"
@@ -171,6 +189,8 @@ def load_pack_catalog(repo_root: Path) -> dict[str, PackDefinition]:
             raise ValueError(f"缺少 pack 元数据文件: {(PACKS_ROOT / pack_key / 'pack.toml').as_posix()}")
         raw = _read_toml(pack_path)
         key = _ensure_string(raw.get("key"), f"{pack_path.name}.key")
+        cli_commands = _ensure_string_tuple(raw.get("cli_commands", []), f"{key}.cli_commands")
+        shell_commands = _ensure_string_tuple(raw.get("shell_commands", []), f"{key}.shell_commands")
         definition = PackDefinition(
             key=key,
             manifest_path=pack_path,
@@ -178,7 +198,9 @@ def load_pack_catalog(repo_root: Path) -> dict[str, PackDefinition]:
             owned_paths=_ensure_string_tuple(raw.get("owned_paths", []), f"{key}.owned_paths"),
             config_keys=_ensure_string_tuple(raw.get("config_keys", []), f"{key}.config_keys"),
             test_selectors=_ensure_string_tuple(raw.get("test_selectors", []), f"{key}.test_selectors"),
-            commands=_ensure_string_tuple(raw.get("commands", []), f"{key}.commands"),
+            cli_commands=cli_commands,
+            shell_commands=shell_commands,
+            commands=_render_pack_commands(cli_commands, shell_commands, cli_metadata=cli_metadata),
             agent_notes=_ensure_string_tuple(raw.get("agent_notes", []), f"{key}.agent_notes"),
         )
         catalog[key] = definition
@@ -259,11 +281,14 @@ def _load_manifest_from_path(repo_root: Path, manifest_path: Path) -> FocusManif
 
     raw = _read_toml(manifest_path)
     strategy_raw = raw.get("strategy")
+    cli_raw = raw.get("cli")
     entrypoints_raw = raw.get("entrypoints")
     acceptance_raw = raw.get("acceptance")
 
     if not isinstance(strategy_raw, dict):
         raise ValueError("Focus Manifest 缺少 `[strategy]` 段。")
+    if not isinstance(cli_raw, dict):
+        raise ValueError("Focus Manifest is missing the `[cli]` section.")
     if not isinstance(entrypoints_raw, dict):
         raise ValueError("Focus Manifest 缺少 `[entrypoints]` 段。")
     if not isinstance(acceptance_raw, dict):
@@ -279,6 +304,11 @@ def _load_manifest_from_path(repo_root: Path, manifest_path: Path) -> FocusManif
             summary=_ensure_string(strategy_raw.get("summary"), "strategy.summary"),
         ),
         packs=_ensure_string_tuple(raw.get("packs"), "packs"),
+        cli=CliEntryMetadata(
+            primary=_ensure_string(cli_raw.get("primary"), "cli.primary"),
+            installed_alias=_ensure_string(cli_raw.get("installed_alias"), "cli.installed_alias"),
+            cwd=_ensure_string(cli_raw.get("cwd"), "cli.cwd"),
+        ),
         entrypoints={key: _ensure_string(entrypoints_raw.get(key), f"entrypoints.{key}") for key in REQUIRED_ENTRYPOINT_KEYS},
         editable_paths=_ensure_string_tuple(raw.get("editable_paths"), "editable_paths"),
         reference_paths=_ensure_string_tuple(raw.get("reference_paths"), "reference_paths"),
@@ -302,7 +332,9 @@ def _load_manifest_from_path(repo_root: Path, manifest_path: Path) -> FocusManif
 def load_current_pointer(repo_root: Path) -> FocusPointer:
     pointer_path = current_pointer_path_for(repo_root)
     if not pointer_path.exists():
-        raise FileNotFoundError("当前仓库尚未初始化策略焦点。请先执行 `option-scaffold focus init <strategy>`。")
+        raise FileNotFoundError(
+            f"当前仓库尚未初始化策略焦点。请先执行 `{render_cli_command('focus init <strategy>')}`。"
+        )
 
     raw = _read_toml(pointer_path)
     strategy = _ensure_string(raw.get("strategy"), "current.strategy")
@@ -339,9 +371,11 @@ def write_current_pointer(repo_root: Path, strategy_name: str, manifest_path: Pa
 
 def _default_entrypoints() -> dict[str, str]:
     return {
-        "run": "option-scaffold run --config config/strategy_config.toml --paper",
-        "backtest": "option-scaffold backtest --config config/strategy_config.toml --start 2025-01-01 --end 2025-03-01 --no-chart",
-        "validate": "option-scaffold validate --config config/strategy_config.toml",
+        "run": render_cli_command("run --config config/strategy_config.toml --paper"),
+        "backtest": render_cli_command(
+            "backtest --config config/strategy_config.toml --start 2025-01-01 --end 2025-03-01 --no-chart"
+        ),
+        "validate": render_cli_command("validate --config config/strategy_config.toml"),
         "monitor": "python src/web/app.py",
     }
 
@@ -359,7 +393,7 @@ def _default_acceptance(
             "Validation succeeds for the current strategy configuration.",
             "Focus verification succeeds for the current strategy.",
         ),
-        minimal_test_command="option-scaffold focus test",
+        minimal_test_command=render_cli_command("focus test"),
         test_selectors=(
             "tests/main/focus",
             "tests/cli/test_app.py",
@@ -396,6 +430,11 @@ def _render_manifest(manifest: FocusManifest) -> str:
             f"strategy_type = {_quote(manifest.strategy.strategy_type)}",
             f"run_mode = {_quote(manifest.strategy.run_mode)}",
             f"summary = {_quote(manifest.strategy.summary)}",
+            "",
+            "[cli]",
+            f"primary = {_quote(manifest.cli.primary)}",
+            f"installed_alias = {_quote(manifest.cli.installed_alias)}",
+            f"cwd = {_quote(manifest.cli.cwd)}",
             "",
             "[entrypoints]",
             entrypoint_lines,
@@ -441,6 +480,7 @@ def _build_default_manifest(
             summary="Default full-pack focus for AGENT-driven strategy development in the current repository.",
         ),
         packs=pack_keys,
+        cli=get_cli_entry_metadata(),
         entrypoints=_default_entrypoints(),
         editable_paths=DEFAULT_EDITABLE_PATHS,
         reference_paths=DEFAULT_REFERENCE_PATHS,
@@ -462,7 +502,7 @@ def _default_acceptance_v2(
             "Validation succeeds for the current strategy configuration.",
             "Focus verification succeeds for the current strategy.",
         ),
-        minimal_test_command="option-scaffold focus test",
+        minimal_test_command=render_cli_command("focus test"),
         test_selectors=(
             "tests/main/focus",
             "tests/cli/test_app.py",
@@ -508,6 +548,7 @@ def _build_default_manifest_v2(
             summary=summary or "Default full-pack focus for AGENT-driven strategy development in the current repository.",
         ),
         packs=pack_keys,
+        cli=get_cli_entry_metadata(),
         entrypoints=_default_entrypoints(),
         editable_paths=DEFAULT_EDITABLE_PATHS,
         reference_paths=DEFAULT_REFERENCE_PATHS,
@@ -528,7 +569,7 @@ def _unique_preserve_order(items: Iterable[str]) -> tuple[str, ...]:
 
 
 def focus_test_command(*, full: bool = False) -> str:
-    return "option-scaffold focus test --full" if full else "option-scaffold focus test"
+    return render_cli_command("focus test --full" if full else "focus test")
 
 
 def _smoke_keyword_expression() -> str:
@@ -577,6 +618,7 @@ def build_focus_context_payload(context: FocusContext) -> dict[str, object]:
         },
         "manifest_path": context.manifest.manifest_path.relative_to(context.repo_root).as_posix(),
         "packs": [pack.key for pack in context.resolved_packs],
+        "cli": cli_entry_metadata_payload(context.manifest.cli),
         "recommended_first_pass": {
             "pack": recommended_pack,
             "entry": first_entry,

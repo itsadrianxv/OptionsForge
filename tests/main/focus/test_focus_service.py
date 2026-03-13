@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 import src.main.focus.service as focus_service_module
+from src.cli.common import render_cli_command
 from src.main.focus.service import (
     build_focus_test_matrix,
     initialize_focus,
@@ -35,7 +36,7 @@ def test_initialize_focus_writes_manifest_pointer_and_navigation(tmp_path: Path)
     assert (repo_root / ".focus" / "TASK_ROUTER.md").exists()
     assert (repo_root / ".focus" / "TEST_MATRIX.md").exists()
     assert "alpha" in (repo_root / ".focus" / "SYSTEM_MAP.md").read_text(encoding="utf-8")
-    assert "option-scaffold focus test --full" in (repo_root / ".focus" / "COMMANDS.md").read_text(
+    assert render_cli_command("focus test --full") in (repo_root / ".focus" / "COMMANDS.md").read_text(
         encoding="utf-8"
     )
     assert "### `selection`" in (repo_root / ".focus" / "TASK_ROUTER.md").read_text(encoding="utf-8")
@@ -61,16 +62,21 @@ strategy_type = "custom"
 run_mode = "standalone"
 summary = "demo"
 
+[cli]
+primary = "python -m src.cli.app"
+installed_alias = "option-scaffold"
+cwd = "repo-root"
+
 [entrypoints]
-run = "option-scaffold run --config config/strategy_config.toml --paper"
-backtest = "option-scaffold backtest --config config/strategy_config.toml --start 2025-01-01 --end 2025-03-01 --no-chart"
-validate = "option-scaffold validate --config config/strategy_config.toml"
+run = "python -m src.cli.app run --config config/strategy_config.toml --paper"
+backtest = "python -m src.cli.app backtest --config config/strategy_config.toml --start 2025-01-01 --end 2025-03-01 --no-chart"
+validate = "python -m src.cli.app validate --config config/strategy_config.toml"
 monitor = "python src/web/app.py"
 
 [acceptance]
 summary = "demo"
 completion_checks = ["ok"]
-minimal_test_command = "option-scaffold focus test"
+minimal_test_command = "python -m src.cli.app focus test"
 test_selectors = ["tests/main/focus"]
 key_logs = ["校验通过"]
 key_outputs = [".focus/SYSTEM_MAP.md"]
@@ -100,16 +106,21 @@ strategy_type = "custom"
 run_mode = "standalone"
 summary = "demo"
 
+[cli]
+primary = "python -m src.cli.app"
+installed_alias = "option-scaffold"
+cwd = "repo-root"
+
 [entrypoints]
-run = "option-scaffold run --config config/strategy_config.toml --paper"
-backtest = "option-scaffold backtest --config config/strategy_config.toml --start 2025-01-01 --end 2025-03-01 --no-chart"
-validate = "option-scaffold validate --config config/strategy_config.toml"
+run = "python -m src.cli.app run --config config/strategy_config.toml --paper"
+backtest = "python -m src.cli.app backtest --config config/strategy_config.toml --start 2025-01-01 --end 2025-03-01 --no-chart"
+validate = "python -m src.cli.app validate --config config/strategy_config.toml"
 monitor = "python src/web/app.py"
 
 [acceptance]
 summary = "demo"
 completion_checks = ["ok"]
-minimal_test_command = "option-scaffold focus test"
+minimal_test_command = "python -m src.cli.app focus test"
 test_selectors = ["tests/main/focus"]
 key_logs = ["校验通过"]
 key_outputs = [".focus/SYSTEM_MAP.md"]
@@ -139,16 +150,21 @@ strategy_type = "custom"
 run_mode = "standalone"
 summary = "demo"
 
+[cli]
+primary = "python -m src.cli.app"
+installed_alias = "option-scaffold"
+cwd = "repo-root"
+
 [entrypoints]
-run = "option-scaffold run --config config/strategy_config.toml --paper"
-backtest = "option-scaffold backtest --config config/strategy_config.toml --start 2025-01-01 --end 2025-03-01 --no-chart"
-validate = "option-scaffold validate --config config/strategy_config.toml"
+run = "python -m src.cli.app run --config config/strategy_config.toml --paper"
+backtest = "python -m src.cli.app backtest --config config/strategy_config.toml --start 2025-01-01 --end 2025-03-01 --no-chart"
+validate = "python -m src.cli.app validate --config config/strategy_config.toml"
 monitor = ""
 
 [acceptance]
 summary = "demo"
 completion_checks = ["ok"]
-minimal_test_command = "option-scaffold focus test"
+minimal_test_command = "python -m src.cli.app focus test"
 test_selectors = ["tests/main/focus"]
 key_logs = ["校验通过"]
 key_outputs = [".focus/SYSTEM_MAP.md"]
@@ -170,7 +186,8 @@ depends_on = ["backtest"]
 owned_paths = ["src/strategy/strategy_entry.py"]
 config_keys = ["strategies"]
 test_selectors = ["tests/cli/test_app.py"]
-commands = ["option-scaffold validate --config config/strategy_config.toml"]
+cli_commands = ["validate --config config/strategy_config.toml"]
+shell_commands = []
 agent_notes = ["cycle"]
 """.strip()
         + "\n",
@@ -208,6 +225,46 @@ def test_build_focus_test_matrix_skips_missing_dependency_packs(tmp_path: Path, 
     assert "tests/main/focus" in matrix.full_selectors
     assert matrix.smoke_keyword_expression == "not property and not pbt"
     assert any(item.pack_key == "backtest" for item in matrix.skipped_packs)
+
+
+def test_focus_context_payload_includes_cli_metadata(tmp_path: Path) -> None:
+    repo_root = build_fake_focus_repo(tmp_path)
+    context = initialize_focus(
+        repo_root,
+        "alpha",
+        trading_target="510050",
+        strategy_type="volatility",
+        run_mode="paper",
+    )
+
+    payload = focus_service_module.build_focus_context_payload(context)
+
+    assert payload["cli"] == {
+        "primary": "python -m src.cli.app",
+        "installed_alias": "option-scaffold",
+        "cwd": "repo-root",
+    }
+
+
+def test_pack_command_schema_renders_cli_and_shell_commands(tmp_path: Path) -> None:
+    repo_root = build_fake_focus_repo(tmp_path)
+    context = initialize_focus(
+        repo_root,
+        "alpha",
+        trading_target="510050",
+        strategy_type="volatility",
+        run_mode="paper",
+    )
+    packs_by_key = {pack.key: pack for pack in context.resolved_packs}
+
+    assert packs_by_key["kernel"].commands == (
+        render_cli_command("validate --config config/strategy_config.toml"),
+        render_cli_command("run --config config/strategy_config.toml --paper"),
+    )
+    assert packs_by_key["web"].commands == ("python src/web/app.py",)
+    assert packs_by_key["deploy"].commands == (
+        "docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build",
+    )
 
 
 def test_run_focus_tests_defaults_to_smoke_filter(tmp_path: Path, monkeypatch) -> None:

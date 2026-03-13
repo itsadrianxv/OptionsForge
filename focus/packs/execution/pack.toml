@@ -16,9 +16,10 @@ config_keys = [
 test_selectors = [
   "tests/strategy/domain/domain_service/test_execution_integration.py",
 ]
-commands = [
-  "option-scaffold run --config config/strategy_config.toml --paper",
+cli_commands = [
+  "run --config config/strategy_config.toml --paper",
 ]
+shell_commands = []
 agent_notes = [
   "Use when: the task changes smart order execution, scheduling, or execution control details.",
   "Read first: src/strategy/domain/domain_service/execution and config/domain_service/execution.",

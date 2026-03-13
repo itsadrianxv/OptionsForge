@@ -12,9 +12,10 @@ test_selectors = [
   "tests/backtesting/test_cli.py",
   "tests/backtesting/test_runner.py",
 ]
-commands = [
-  "option-scaffold backtest --config config/strategy_config.toml --start 2025-01-01 --end 2025-03-01 --no-chart",
+cli_commands = [
+  "backtest --config config/strategy_config.toml --start 2025-01-01 --end 2025-03-01 --no-chart",
 ]
+shell_commands = []
 agent_notes = [
   "Use when: the task needs execution evidence for strategy logic, contract discovery, or parameter effects.",
   "Read first: src/backtesting and tests/backtesting.",

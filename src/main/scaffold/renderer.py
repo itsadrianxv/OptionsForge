@@ -5,6 +5,7 @@ from pathlib import Path
 import shutil
 from textwrap import dedent
 
+from src.cli.common import get_cli_entry_metadata, render_cli_command
 from .catalog import REPO_ROOT, capability_label, capability_option_label, get_capability_options
 from .models import DirectoryConflictPolicy, ScaffoldPlan
 from .next_steps import build_next_step_commands
@@ -241,11 +242,15 @@ def _render_project_pyproject(plan: ScaffoldPlan) -> str:
 def _render_root_readme(plan: ScaffoldPlan) -> str:
     capability_lines = _render_grouped_capabilities(plan)
     next_step_commands = build_next_step_commands(plan.project_root.name)
+    cli_metadata = get_cli_entry_metadata()
     return dedent(
         f'''
         # {plan.project_name}
 
-        这是由 `option-scaffold create` 生成的期权策略工作区。
+        这是由 `{render_cli_command('create')}` 生成的期权策略工作区。
+
+        源码仓库默认从仓库根目录执行 `{cli_metadata.primary} ...`。
+        如果你已经把包安装进当前环境，也可以使用等价短命令 `{cli_metadata.installed_alias} ...`。
 
         ## 选择摘要
 

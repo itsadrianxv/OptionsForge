@@ -15,9 +15,10 @@ config_keys = [
 test_selectors = [
   "tests/strategy/domain/domain_service/test_pricing_engine.py",
 ]
-commands = [
-  "option-scaffold validate --config config/strategy_config.toml",
+cli_commands = [
+  "validate --config config/strategy_config.toml",
 ]
+shell_commands = []
 agent_notes = [
   "Use when: the task changes pricing, implied volatility, or Greeks support.",
   "Read first: src/strategy/domain/domain_service/pricing and config/domain_service/pricing.",

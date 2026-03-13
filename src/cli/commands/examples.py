@@ -12,6 +12,7 @@ from src.cli.common import (
     display_path,
     emit_single_json,
     get_project_root,
+    render_cli_command,
 )
 
 
@@ -90,7 +91,7 @@ def command(name: str | None = typer.Argument(None, help="示例名称；不传�
         typer.echo("可用示例：")
         for item in examples:
             typer.echo(f"- {item.name}: {item.summary}")
-        typer.echo("使用 `option-scaffold examples <name>` 查看详情。")
+        typer.echo(f"使用 `{render_cli_command('examples <name>')}` 查看详情。")
         return
 
     selected = next((item for item in examples if item.name == name), None)

@@ -19,11 +19,13 @@
 
 ## Runtime Chain
 
-1. `option-scaffold` is the unified command entrypoint.
-2. `src/cli/app.py` routes commands to `forge`, `focus`, `run`, `backtest`, `validate`, and supporting commands.
-3. `src/main/main.py` orchestrates runtime startup.
-4. `src/strategy/strategy_entry.py` connects application, domain, and infrastructure layers.
-5. Enabled packs extend the runtime with domain logic, monitoring, backtest, web, and deploy capabilities.
+1. Source-checkout default: `python -m src.cli.app`.
+2. Installed alias: `option-scaffold`.
+3. Run CLI commands from `repo-root`.
+4. `src/cli/app.py` routes commands to `forge`, `focus`, `run`, `backtest`, `validate`, and supporting commands.
+5. `src/main/main.py` orchestrates runtime startup.
+6. `src/strategy/strategy_entry.py` connects application, domain, and infrastructure layers.
+7. Enabled packs extend the runtime with domain logic, monitoring, backtest, web, and deploy capabilities.
 
 ## Pack Notes
 
@@ -59,8 +61,8 @@
 - `tests/strategy/infrastructure/utils`
 - `tests/cli/test_app.py`
 - Common commands:
-  - `option-scaffold validate --config config/strategy_config.toml`
-  - `option-scaffold run --config config/strategy_config.toml --paper`
+  - `python -m src.cli.app validate --config config/strategy_config.toml`
+  - `python -m src.cli.app run --config config/strategy_config.toml --paper`
 - Agent notes:
   - Use when: every strategy task depends on the kernel pack.
   - Read first: focus manifest, config/strategy_config.toml, src/strategy/strategy_entry.py.
@@ -75,7 +77,7 @@
 - `config/domain_service/selection`
 - `tests/strategy/domain/domain_service/test_selection_integration.py`
 - Common commands:
-  - `option-scaffold validate --config config/strategy_config.toml`
+  - `python -m src.cli.app validate --config config/strategy_config.toml`
 - Agent notes:
   - Use when: the task changes underlying selection, option-chain handling, or contract candidate rules.
   - Read first: src/strategy/domain/domain_service/selection and config/domain_service/selection.
@@ -93,7 +95,7 @@
 - `tests/strategy/domain/domain_service/test_pricing_engine_properties.py`
 - `tests/strategy/domain/domain_service/test_pricing_properties.py`
 - Common commands:
-  - `option-scaffold validate --config config/strategy_config.toml`
+  - `python -m src.cli.app validate --config config/strategy_config.toml`
 - Agent notes:
   - Use when: the task changes pricing, implied volatility, or Greeks support.
   - Read first: src/strategy/domain/domain_service/pricing and config/domain_service/pricing.
@@ -110,7 +112,7 @@
 - `tests/strategy/domain/domain_service/risk`
 - `tests/strategy/domain/domain_service/combination`
 - Common commands:
-  - `option-scaffold validate --config config/strategy_config.toml`
+  - `python -m src.cli.app validate --config config/strategy_config.toml`
 - Agent notes:
   - Use when: the task changes position sizing, portfolio Greeks, stop logic, or risk budgets.
   - Read first: src/strategy/domain/domain_service/risk and src/strategy/domain/domain_service/combination.
@@ -127,7 +129,7 @@
 - `tests/strategy/domain/domain_service/test_execution_coordinator_properties.py`
 - `tests/strategy/domain/domain_service/test_execution_integration.py`
 - Common commands:
-  - `option-scaffold run --config config/strategy_config.toml --paper`
+  - `python -m src.cli.app run --config config/strategy_config.toml --paper`
 - Agent notes:
   - Use when: the task changes smart order execution, scheduling, or execution control details.
   - Read first: src/strategy/domain/domain_service/execution and config/domain_service/execution.
@@ -143,7 +145,7 @@
 - `tests/strategy/domain/domain_service/test_delta_hedging_service.py`
 - `tests/strategy/domain/domain_service/test_vega_hedging_service.py`
 - Common commands:
-  - `option-scaffold run --config config/strategy_config.toml --paper`
+  - `python -m src.cli.app run --config config/strategy_config.toml --paper`
 - Agent notes:
   - Use when: the task changes Delta hedging, Vega hedging, or hedging thresholds.
   - Read first: src/strategy/domain/domain_service/hedging and the hedging section in config/strategy_config.toml.
@@ -159,7 +161,7 @@
 - `tests/strategy/infrastructure/monitoring`
 - `tests/strategy/infrastructure/persistence`
 - Common commands:
-  - `option-scaffold run --config config/strategy_config.toml --paper`
+  - `python -m src.cli.app run --config config/strategy_config.toml --paper`
 - Agent notes:
   - Use when: the task changes monitoring, snapshots, persistence, or observability output.
   - Read first: src/strategy/infrastructure/monitoring and src/strategy/infrastructure/persistence.
@@ -202,7 +204,7 @@
 - `src/backtesting`
 - `tests/backtesting`
 - Common commands:
-  - `option-scaffold backtest --config config/strategy_config.toml --start 2025-01-01 --end 2025-03-01 --no-chart`
+  - `python -m src.cli.app backtest --config config/strategy_config.toml --start 2025-01-01 --end 2025-03-01 --no-chart`
 - Agent notes:
   - Use when: the task needs execution evidence for strategy logic, contract discovery, or parameter effects.
   - Read first: src/backtesting and tests/backtesting.

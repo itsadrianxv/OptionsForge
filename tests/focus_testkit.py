@@ -10,7 +10,11 @@ PACK_FIXTURES: dict[str, dict[str, object]] = {
         "owned_paths": ("src/strategy/strategy_entry.py", "tests/cli/test_app.py"),
         "config_keys": ("strategies",),
         "test_selectors": ("tests/cli/test_app.py",),
-        "commands": ("option-scaffold validate --config config/strategy_config.toml",),
+        "cli_commands": (
+            "validate --config config/strategy_config.toml",
+            "run --config config/strategy_config.toml --paper",
+        ),
+        "shell_commands": (),
         "agent_notes": ("Use when: every strategy depends on the kernel pack.",),
     },
     "selection": {
@@ -18,7 +22,8 @@ PACK_FIXTURES: dict[str, dict[str, object]] = {
         "owned_paths": ("src/strategy/domain/domain_service/selection", "tests/strategy/domain/domain_service/test_selection_integration.py"),
         "config_keys": ("service_activation.option_selector",),
         "test_selectors": ("tests/strategy/domain/domain_service/test_selection_integration.py",),
-        "commands": ("option-scaffold validate --config config/strategy_config.toml",),
+        "cli_commands": ("validate --config config/strategy_config.toml",),
+        "shell_commands": (),
         "agent_notes": ("Use when: selection logic belongs in the selection service.",),
     },
     "pricing": {
@@ -26,7 +31,8 @@ PACK_FIXTURES: dict[str, dict[str, object]] = {
         "owned_paths": ("src/strategy/domain/domain_service/pricing", "tests/strategy/domain/domain_service/test_pricing_engine.py"),
         "config_keys": ("service_activation.pricing_engine",),
         "test_selectors": ("tests/strategy/domain/domain_service/test_pricing_engine.py",),
-        "commands": ("option-scaffold validate --config config/strategy_config.toml",),
+        "cli_commands": ("validate --config config/strategy_config.toml",),
+        "shell_commands": (),
         "agent_notes": ("Use when: pricing logic should stay in the pricing pack.",),
     },
     "risk": {
@@ -34,7 +40,8 @@ PACK_FIXTURES: dict[str, dict[str, object]] = {
         "owned_paths": ("src/strategy/domain/domain_service/risk", "tests/strategy/domain/domain_service/risk"),
         "config_keys": ("greeks_risk",),
         "test_selectors": ("tests/strategy/domain/domain_service/risk",),
-        "commands": ("option-scaffold validate --config config/strategy_config.toml",),
+        "cli_commands": ("validate --config config/strategy_config.toml",),
+        "shell_commands": (),
         "agent_notes": ("Use when: risk logic should stay in concrete risk services.",),
     },
     "execution": {
@@ -42,7 +49,8 @@ PACK_FIXTURES: dict[str, dict[str, object]] = {
         "owned_paths": ("src/strategy/domain/domain_service/execution", "tests/strategy/domain/domain_service/test_execution_integration.py"),
         "config_keys": ("order_execution",),
         "test_selectors": ("tests/strategy/domain/domain_service/test_execution_integration.py",),
-        "commands": ("option-scaffold run --config config/strategy_config.toml --paper",),
+        "cli_commands": ("run --config config/strategy_config.toml --paper",),
+        "shell_commands": (),
         "agent_notes": ("Common mistake: do not add facade layers for execution logic.",),
     },
     "hedging": {
@@ -50,7 +58,8 @@ PACK_FIXTURES: dict[str, dict[str, object]] = {
         "owned_paths": ("src/strategy/domain/domain_service/hedging", "tests/strategy/domain/domain_service/test_delta_hedging_service.py"),
         "config_keys": ("hedging",),
         "test_selectors": ("tests/strategy/domain/domain_service/test_delta_hedging_service.py",),
-        "commands": ("option-scaffold run --config config/strategy_config.toml --paper",),
+        "cli_commands": ("run --config config/strategy_config.toml --paper",),
+        "shell_commands": (),
         "agent_notes": ("Use when: hedging logic should stay inside hedging services.",),
     },
     "monitoring": {
@@ -58,7 +67,8 @@ PACK_FIXTURES: dict[str, dict[str, object]] = {
         "owned_paths": ("src/strategy/infrastructure/monitoring", "tests/strategy/infrastructure/monitoring"),
         "config_keys": ("observability",),
         "test_selectors": ("tests/strategy/infrastructure/monitoring",),
-        "commands": ("option-scaffold run --config config/strategy_config.toml --paper",),
+        "cli_commands": ("run --config config/strategy_config.toml --paper",),
+        "shell_commands": (),
         "agent_notes": ("Use when: monitoring and persistence should stay in infrastructure.",),
     },
     "web": {
@@ -66,7 +76,8 @@ PACK_FIXTURES: dict[str, dict[str, object]] = {
         "owned_paths": ("src/web", "tests/web"),
         "config_keys": ("runtime.log_dir",),
         "test_selectors": ("tests/web",),
-        "commands": ("python src/web/app.py",),
+        "cli_commands": (),
+        "shell_commands": ("python src/web/app.py",),
         "agent_notes": ("Use when: the web layer remains read-only and presentational.",),
     },
     "deploy": {
@@ -74,7 +85,8 @@ PACK_FIXTURES: dict[str, dict[str, object]] = {
         "owned_paths": ("deploy", ".env.example"),
         "config_keys": (),
         "test_selectors": (),
-        "commands": ("docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build",),
+        "cli_commands": (),
+        "shell_commands": ("docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build",),
         "agent_notes": ("Common mistake: do not start local iteration from deploy changes.",),
     },
     "backtest": {
@@ -82,7 +94,8 @@ PACK_FIXTURES: dict[str, dict[str, object]] = {
         "owned_paths": ("src/backtesting", "tests/backtesting"),
         "config_keys": ("strategies",),
         "test_selectors": ("tests/backtesting",),
-        "commands": ("option-scaffold backtest --config config/strategy_config.toml --start 2025-01-01 --end 2025-03-01 --no-chart",),
+        "cli_commands": ("backtest --config config/strategy_config.toml --start 2025-01-01 --end 2025-03-01 --no-chart",),
+        "shell_commands": (),
         "agent_notes": ("Use when: backtest should reuse the main strategy contract.",),
     },
 }
@@ -180,7 +193,8 @@ def _render_pack_toml(pack_key: str, payload: dict[str, object]) -> str:
             f"owned_paths = {render_list(payload['owned_paths'])}",
             f"config_keys = {render_list(payload['config_keys'])}",
             f"test_selectors = {render_list(payload['test_selectors'])}",
-            f"commands = {render_list(payload['commands'])}",
+            f"cli_commands = {render_list(payload['cli_commands'])}",
+            f"shell_commands = {render_list(payload['shell_commands'])}",
             f"agent_notes = {render_list(payload['agent_notes'])}",
             "",
         ]
