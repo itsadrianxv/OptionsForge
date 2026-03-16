@@ -1,0 +1,4 @@
+﻿interface:
+  display_name: "Option Strategy Builder"
+  short_description: "Guide option strategy schema, persistence, gateways, and signals"
+  default_prompt: "Use $build-option-strategy to design or implement option strategy schema, persistence, gateways, contract filtering, and signal generation."
