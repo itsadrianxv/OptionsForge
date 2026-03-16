@@ -1,5 +1,5 @@
 ---
-name: build-option-strategy
+name: option-strategy-builder
 description: Design or implement option trading strategy systems, including schema modeling, market and trade persistence, gateway integration, contract processing and filtering, pricing and greeks workflows, signal generation, risk, execution, hedging, and replay or monitoring flows. Use when an agent needs a reusable workflow for building option strategy software across broker APIs, data vendors, and codebases.
 ---
 
