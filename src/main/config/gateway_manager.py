@@ -26,6 +26,8 @@ from vnpy.trader.event import (
     EVENT_POSITION,
 )
 
+from src.main.bootstrap.ctp_tick_patch import patch_ctp_pre_settlement_price
+
 
 class GatewayStatus(Enum):
     """网关状态。"""
@@ -92,6 +94,7 @@ class GatewayManager:
 
     def _load_gateway_classes(self) -> None:
         """动态加载网关类。"""
+        patch_ctp_pre_settlement_price(self.logger)
         from vnpy_ctp import CtpGateway
 
         self.GATEWAY_CLASS_MAP["ctp"] = CtpGateway

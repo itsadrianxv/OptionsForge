@@ -145,7 +145,7 @@ class VnpyMarketDataGateway(VnpyGatewayAdapter):
                     symbol_part = vt_symbol
                     exchange = None
 
-                return TickData(
+                tick = TickData(
                     symbol=symbol_part,
                     exchange=exchange,
                     datetime=datetime.now(), # 回测中时间可能不准，但 check_liquidity 不看时间
@@ -167,6 +167,8 @@ class VnpyMarketDataGateway(VnpyGatewayAdapter):
                     ask_volume_1=max(last_volume, 1000),
                     gateway_name="BACKTESTING"
                 )
+                tick.pre_settlement_price = 0.0
+                return tick
         return None
 
     def get_contract(self, vt_symbol: str) -> Optional[Any]:
