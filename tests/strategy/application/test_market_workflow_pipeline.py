@@ -94,6 +94,9 @@ def test_market_workflow_emits_decision_trace_for_open_pipeline() -> None:
     greeks_enricher = MagicMock()
     pricing_enricher = MagicMock()
     sizing_evaluator = MagicMock()
+    execution_planner = MagicMock()
+    execution_scheduler = MagicMock()
+    rebalance_planner = MagicMock()
     selected_contract = OptionContract(
         vt_symbol="IO2506-C-3800.CFFEX",
         underlying_symbol="IF2506.CFFEX",
@@ -128,7 +131,10 @@ def test_market_workflow_emits_decision_trace_for_open_pipeline() -> None:
             greeks_enricher=greeks_enricher,
             pricing_enricher=pricing_enricher,
             sizing_evaluator=sizing_evaluator,
+            execution_planner=execution_planner,
+            execution_scheduler=execution_scheduler,
         ),
+        portfolio=SimpleNamespace(rebalance_planner=rebalance_planner),
     )
     entry.observability_config = {"emit_noop_decisions": False}
     entry.service_activation = {
@@ -157,6 +163,13 @@ def test_market_workflow_emits_decision_trace_for_open_pipeline() -> None:
     greeks_enricher.return_value = SimpleNamespace(delta=0.2, gamma=0.01, theta=-0.05, vega=0.3)
     pricing_enricher.return_value = {"theoretical_price": 10.3, "pricing_model": "stub"}
     sizing_evaluator.return_value = {"passed": True, "final_volume": 2, "summary": "runtime sizing"}
+    execution_planner.return_value = {"planned_action": "open", "suggested_volume": 2}
+    execution_scheduler.return_value = {
+        "planned_action": "open",
+        "suggested_volume": 2,
+        "scheduled": True,
+    }
+    rebalance_planner.return_value = {"action": "hedge", "reason": "delta drift"}
 
     workflow = MarketWorkflow(entry)
     bar = SimpleNamespace(
@@ -175,8 +188,13 @@ def test_market_workflow_emits_decision_trace_for_open_pipeline() -> None:
     assert any(stage["stage"] == "selection" for stage in captured_traces[-1]["stages"])
     assert any(stage["stage"] == "pricing" and stage["status"] == "ok" for stage in captured_traces[-1]["stages"])
     assert any(stage["stage"] == "sizing" and stage["status"] == "ok" for stage in captured_traces[-1]["stages"])
+    assert any(stage["stage"] == "execution_plan" and stage["payload"].get("scheduled") is True for stage in captured_traces[-1]["stages"])
+    assert any(stage["stage"] == "rebalance_plan" for stage in captured_traces[-1]["stages"])
     option_chain_loader.assert_called_once()
     contract_selector.assert_called_once()
     greeks_enricher.assert_called_once()
     pricing_enricher.assert_called_once()
     sizing_evaluator.assert_called_once()
+    execution_planner.assert_called_once()
+    execution_scheduler.assert_called_once()
+    rebalance_planner.assert_called_once()

@@ -43,6 +43,11 @@ class MarketWorkflow:
         close_pipeline = getattr(runtime, "close_pipeline", None)
         return getattr(close_pipeline, role_name, None)
 
+    def _portfolio_role(self, role_name: str) -> Any:
+        runtime = getattr(self.entry, "runtime", None)
+        portfolio = getattr(runtime, "portfolio", None)
+        return getattr(portfolio, role_name, None)
+
     def on_tick(self, tick: TickData) -> None:
         """处理逐笔行情推送，启用管道时转发给 K 线管道。"""
         if self.entry.bar_pipeline:
@@ -327,6 +332,27 @@ class MarketWorkflow:
                 "suggested_volume": sizing_payload.get("final_volume") if sizing_payload else None,
             },
         )
+        execution_planner = self._open_pipeline_role("execution_planner")
+        execution_scheduler = self._open_pipeline_role("execution_scheduler")
+        if execution_planner is not None:
+            runtime_execution_plan = execution_planner(selected_contract, open_signal, sizing_payload)
+            if execution_scheduler is not None:
+                runtime_execution_plan = execution_scheduler(runtime_execution_plan)
+            trace.append_stage("execution_plan", "planned", "runtime execution planned", runtime_execution_plan)
+
+        rebalance_planner = self._portfolio_role("rebalance_planner")
+        if rebalance_planner is not None:
+            rebalance_plan = rebalance_planner(
+                vt_symbol=vt_symbol,
+                instrument=instrument,
+                option_chain=option_chain,
+                selected_contract=selected_contract,
+                pricing_payload=pricing_payload,
+                sizing_payload=sizing_payload,
+            )
+            if rebalance_plan is not None:
+                trace.append_stage("rebalance_plan", "planned", "runtime rebalance planned", rebalance_plan)
+
         return trace
 
     def _run_close_pipeline(

@@ -43,3 +43,17 @@ def test_builder_returns_empty_runtime_for_complete_disabled_manifest() -> None:
     assert runtime.enabled_capabilities == ()
     assert runtime.lifecycle.init_hooks == ()
     assert runtime.state.snapshot_sinks == ()
+
+
+def test_builder_rejects_multiple_rebalance_planners() -> None:
+    with pytest.raises(ValueError, match="portfolio.rebalance_planner"):
+        StrategyRuntimeBuilder().build(
+            _entry(),
+            {
+                "service_activation": _manifest(
+                    greeks_calculator=True,
+                    delta_hedging=True,
+                    vega_hedging=True,
+                )
+            },
+        )
