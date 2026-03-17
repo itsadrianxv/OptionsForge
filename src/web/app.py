@@ -1,293 +1,381 @@
-from flask import Flask, render_template, jsonify, request
-from reader import PostgresSnapshotReader, StrategyStateReader
+from __future__ import annotations
+
 import os
-import json
+import select
+from datetime import datetime
+from threading import Lock
+from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
-from flask_socketio import SocketIO, join_room
+from flask import Flask, current_app, jsonify, render_template, request
+from flask_socketio import SocketIO, join_room, leave_room
 
-app = Flask(__name__, template_folder='templates', static_folder='static')
-app.config['TEMPLATES_AUTO_RELOAD'] = True
+from src.strategy.infrastructure.monitoring.notification_protocol import (
+    MONITOR_DECISION_TRACE_UPDATES_CHANNEL,
+    MONITOR_SNAPSHOT_UPDATES_CHANNEL,
+    decode_notification_payload,
+)
+from src.web.reader import PostgresSnapshotReader, StrategyStateReader
+
 
 load_dotenv()
 
-postgres_reader = PostgresSnapshotReader()
-state_reader = StrategyStateReader({
-    "host": os.getenv("VNPY_DATABASE_HOST", ""),
-    "port": int(os.getenv("VNPY_DATABASE_PORT", "5432") or 5432),
-    "user": os.getenv("VNPY_DATABASE_USER", ""),
-    "password": os.getenv("VNPY_DATABASE_PASSWORD", ""),
-    "database": os.getenv("VNPY_DATABASE_DATABASE", ""),
-})
+socketio = SocketIO(cors_allowed_origins="*", async_mode="threading")
 
-use_postgres = str(os.getenv("MONITOR_USE_POSTGRES", "1")).lower() not in ("0", "false", "no", "off", "")
 
-_postgres_ready_cache = {"ts": 0.0, "ready": False}
+def _build_state_reader() -> StrategyStateReader:
+    return StrategyStateReader(
+        {
+            "host": os.getenv("VNPY_DATABASE_HOST", ""),
+            "port": int(os.getenv("VNPY_DATABASE_PORT", "5432") or 5432),
+            "user": os.getenv("VNPY_DATABASE_USER", ""),
+            "password": os.getenv("VNPY_DATABASE_PASSWORD", ""),
+            "database": os.getenv("VNPY_DATABASE_DATABASE", ""),
+        }
+    )
 
-def postgres_ready() -> bool:
-    if not (use_postgres and postgres_reader._db_available()):
-        return False
-    import time
-    now = time.time()
-    if now - _postgres_ready_cache["ts"] < 1.0:
-        return bool(_postgres_ready_cache["ready"])
-    ready = False
+
+def _normalize_limit(limit_value: str, default: int, maximum: int) -> int:
     try:
-        postgres_reader.ensure_tables()
-        conn = postgres_reader._connect()
-        if conn is not None:
+        limit = int(limit_value)
+    except Exception:
+        limit = default
+    if limit <= 0:
+        return default
+    return min(limit, maximum)
+
+
+class MonitorRuntime:
+    def __init__(
+        self,
+        snapshot_reader: PostgresSnapshotReader,
+        state_reader: StrategyStateReader,
+        socketio_server: SocketIO,
+        heartbeat_sec: int,
+    ) -> None:
+        self.snapshot_reader = snapshot_reader
+        self.state_reader = state_reader
+        self.socketio = socketio_server
+        self.heartbeat_sec = max(int(heartbeat_sec or 5), 1)
+        self._sid_variants: Dict[str, str] = {}
+        self._lock = Lock()
+        self._background_tasks_started = False
+
+    @staticmethod
+    def variant_room(variant: str) -> str:
+        return f"variant:{variant}"
+
+    def start_background_tasks(self) -> None:
+        if self._background_tasks_started:
+            return
+        self._background_tasks_started = True
+        try:
+            self.snapshot_reader.ensure_tables()
+        except Exception:
+            pass
+        self.socketio.start_background_task(self._listen_notifications_loop)
+        self.socketio.start_background_task(self._heartbeat_loop)
+
+    def list_strategies(self) -> List[Dict[str, Any]]:
+        merged: Dict[str, Dict[str, Any]] = {}
+        try:
+            for row in self.state_reader.list_available_strategies():
+                variant = str(row.get("variant", "") or "")
+                if variant:
+                    merged[variant] = dict(row)
+        except Exception:
+            pass
+        try:
+            for row in self.snapshot_reader.list_available_strategies():
+                variant = str(row.get("variant", "") or "")
+                if not variant:
+                    continue
+                previous = merged.get(variant) or {}
+                merged[variant] = {
+                    "variant": variant,
+                    "last_update": row.get("last_update") or previous.get("last_update", ""),
+                    "file_size": row.get("file_size"),
+                }
+        except Exception:
+            pass
+        return [merged[key] for key in sorted(merged.keys())]
+
+    def get_snapshot(self, variant: str) -> Optional[Dict[str, Any]]:
+        if not variant:
+            return None
+        try:
+            snapshot = self.snapshot_reader.get_strategy_data(variant)
+            if snapshot:
+                return snapshot
+        except Exception:
+            pass
+        try:
+            snapshot = self.state_reader.get_strategy_data(variant)
+            if snapshot:
+                return snapshot
+        except Exception:
+            pass
+        return None
+
+    def get_decisions(self, variant: str, vt_symbol: str, limit: int) -> Dict[str, Any]:
+        if variant and self.snapshot_reader._db_available():
+            events = self.snapshot_reader.get_events(
+                variant=variant,
+                vt_symbol=vt_symbol,
+                event_type="decision_trace",
+                limit=limit,
+            )
+            if events:
+                return {"items": events, "source": "events"}
+        snapshot = self.get_snapshot(variant) or {}
+        decisions = list(snapshot.get("recent_decisions", []) or [])
+        if vt_symbol:
+            decisions = [
+                item for item in decisions if str(item.get("vt_symbol", "") or "") == vt_symbol
+            ]
+        return {"items": decisions[:limit], "source": "snapshot"}
+
+    def subscribe(self, sid: str, variant: str) -> Dict[str, Any]:
+        variant_name = str(variant or "")
+        old_variant = ""
+        with self._lock:
+            old_variant = self._sid_variants.get(sid, "")
+            if variant_name:
+                self._sid_variants[sid] = variant_name
+            else:
+                self._sid_variants.pop(sid, None)
+        if old_variant and old_variant != variant_name:
+            leave_room(self.variant_room(old_variant), sid=sid)
+        if variant_name:
+            join_room(self.variant_room(variant_name), sid=sid)
+            return {"variant": variant_name, "subscribed": True}
+        return {"variant": "", "subscribed": False}
+
+    def unsubscribe(self, sid: str) -> Dict[str, Any]:
+        with self._lock:
+            variant = self._sid_variants.pop(sid, "")
+        if variant:
+            leave_room(self.variant_room(variant), sid=sid)
+        return {"variant": variant, "subscribed": False}
+
+    def disconnect(self, sid: str) -> None:
+        with self._lock:
+            variant = self._sid_variants.pop(sid, "")
+        if variant:
             try:
-                with conn.cursor() as cursor:
-                    cursor.execute("SELECT 1 FROM monitor_signal_snapshot LIMIT 1")
-                    ready = cursor.fetchone() is not None
+                leave_room(self.variant_room(variant), sid=sid)
+            except Exception:
+                pass
+
+    def process_notification(self, channel: str, payload: Dict[str, Any]) -> None:
+        if channel == MONITOR_SNAPSHOT_UPDATES_CHANNEL:
+            variant = str(payload.get("variant", "") or "")
+            if not variant:
+                return
+            snapshot = self.snapshot_reader.get_strategy_data(variant)
+            if snapshot:
+                self.socketio.emit(
+                    "snapshot_update",
+                    snapshot,
+                    room=self.variant_room(variant),
+                )
+            return
+
+        if channel != MONITOR_DECISION_TRACE_UPDATES_CHANNEL:
+            return
+        if str(payload.get("event_type", "") or "") != "decision_trace":
+            return
+        event = self.snapshot_reader.get_event_by_id(payload.get("event_id", 0))
+        if not event:
+            return
+        variant = str(event.get("variant", "") or "")
+        if not variant:
+            return
+        self.socketio.emit(
+            "event_new",
+            event,
+            room=self.variant_room(variant),
+        )
+
+    def _listen_notifications_loop(self) -> None:
+        while True:
+            conn = self.snapshot_reader._connect_listener()
+            if conn is None:
+                self.socketio.sleep(1.0)
+                continue
+            try:
+                cursor = conn.cursor()
+                cursor.execute(f"LISTEN {MONITOR_SNAPSHOT_UPDATES_CHANNEL};")
+                cursor.execute(f"LISTEN {MONITOR_DECISION_TRACE_UPDATES_CHANNEL};")
+                while True:
+                    ready, _, _ = select.select([conn], [], [], float(self.heartbeat_sec))
+                    if not ready:
+                        continue
+                    conn.poll()
+                    while conn.notifies:
+                        notify = conn.notifies.pop(0)
+                        self.process_notification(
+                            getattr(notify, "channel", ""),
+                            decode_notification_payload(getattr(notify, "payload", "")),
+                        )
+            except Exception:
+                pass
             finally:
                 try:
                     conn.close()
                 except Exception:
                     pass
-    except Exception:
-        ready = False
-    _postgres_ready_cache["ts"] = now
-    _postgres_ready_cache["ready"] = ready
-    return ready
+            self.socketio.sleep(1.0)
 
-def list_strategies_best_effort():
-    # 1. Try StrategyStateReader (strategy_state table)
-    try:
-        rows = state_reader.list_available_strategies()
-        if rows:
-            return rows
-    except Exception:
-        pass
-    # 2. Fall back to PostgresSnapshotReader (monitor_signal_snapshot table)
-    if postgres_ready():
-        rows = postgres_reader.list_available_strategies()
-        if rows:
-            return rows
-    return []
+    def _heartbeat_loop(self) -> None:
+        while True:
+            self.socketio.emit(
+                "heartbeat",
+                {"server_time": datetime.now().isoformat()},
+            )
+            self.socketio.sleep(float(self.heartbeat_sec))
 
-def get_snapshot_best_effort(variant_name: str):
-    # 1. Try StrategyStateReader (strategy_state table)
-    try:
-        data = state_reader.get_strategy_data(variant_name)
-        if data:
-            return data
-    except Exception:
-        pass
-    # 2. Fall back to PostgresSnapshotReader (monitor_signal_snapshot table)
-    if postgres_ready():
-        data = postgres_reader.get_strategy_data(variant_name)
-        if data:
-            return data
-    return None
 
-socketio = None
-if SocketIO is not None:
-    socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
+def _get_runtime() -> MonitorRuntime:
+    return current_app.extensions["monitor_runtime"]
 
-@app.route("/")
-def index():
-    """首页：策略实例列表"""
-    strategies = list_strategies_best_effort()
-    front_poll_ms = int(float(os.getenv("MONITOR_FRONT_POLL_MS", "3000") or 3000))
-    front_stale_ms = int(float(os.getenv("MONITOR_FRONT_STALE_MS", "5000") or 5000))
-    return render_template(
-        "index.html",
-        strategies=strategies,
-        front_poll_ms=front_poll_ms,
-        front_stale_ms=front_stale_ms,
+
+@socketio.on("subscribe")
+def handle_subscribe(data):
+    runtime = _get_runtime()
+    variant = ""
+    if isinstance(data, dict):
+        variant = str(data.get("variant", "") or "")
+    payload = runtime.subscribe(request.sid, variant)
+    socketio.emit("subscription_state", payload, to=request.sid)
+
+
+@socketio.on("unsubscribe")
+def handle_unsubscribe():
+    runtime = _get_runtime()
+    payload = runtime.unsubscribe(request.sid)
+    socketio.emit("subscription_state", payload, to=request.sid)
+
+
+@socketio.on("disconnect")
+def handle_disconnect():
+    _get_runtime().disconnect(request.sid)
+
+
+def create_app(
+    start_background_services: bool = True,
+    *,
+    snapshot_reader: Optional[PostgresSnapshotReader] = None,
+    state_reader: Optional[StrategyStateReader] = None,
+) -> Flask:
+    app = Flask(__name__, template_folder="templates", static_folder="static")
+    app.config["TEMPLATES_AUTO_RELOAD"] = True
+    socketio.init_app(app)
+
+    heartbeat_sec = max(int(float(os.getenv("MONITOR_SOCKET_HEARTBEAT_SEC", "5") or 5)), 1)
+    runtime = MonitorRuntime(
+        snapshot_reader=snapshot_reader or PostgresSnapshotReader(),
+        state_reader=state_reader or _build_state_reader(),
+        socketio_server=socketio,
+        heartbeat_sec=heartbeat_sec,
     )
+    app.extensions["monitor_runtime"] = runtime
 
-@app.route("/api/strategies")
-def api_strategies():
-    """获取策略列表"""
-    strategies = list_strategies_best_effort()
-    # 提取变体名称以供前端使用的简单列表
-    names = [s['variant'] for s in strategies]
-    return jsonify(names)
+    @app.route("/")
+    def index():
+        return render_template(
+            "index.html",
+            strategies=[item["variant"] for item in runtime.list_strategies()],
+            heartbeat_sec=heartbeat_sec,
+        )
 
-@app.route("/dashboard/<variant_name>")
-def dashboard(variant_name):
-    """详情页：渲染外壳"""
-    front_poll_ms = int(float(os.getenv("MONITOR_FRONT_POLL_MS", "3000") or 3000))
-    front_stale_ms = int(float(os.getenv("MONITOR_FRONT_STALE_MS", "5000") or 5000))
-    return render_template(
-        "index.html",
-        variant=variant_name,
-        front_poll_ms=front_poll_ms,
-        front_stale_ms=front_stale_ms,
-    )
+    @app.route("/dashboard/<variant_name>")
+    def dashboard(variant_name):
+        return render_template(
+            "index.html",
+            strategies=[item["variant"] for item in runtime.list_strategies()],
+            variant=variant_name,
+            heartbeat_sec=heartbeat_sec,
+        )
 
-@app.route("/api/data/<variant_name>")
-def api_data(variant_name):
-    """AJAX 接口：前端轮询获取最新数据"""
-    data = get_snapshot_best_effort(variant_name)
-    if not data:
-        return jsonify({"error": "Not found"}), 404
-    return jsonify(data)
+    @app.route("/api/strategies")
+    def api_strategies():
+        return jsonify([item["variant"] for item in runtime.list_strategies()])
 
-@app.route("/api/snapshot/<variant_name>")
-def api_snapshot(variant_name):
-    data = get_snapshot_best_effort(variant_name)
-    if not data:
-        return jsonify({"error": "Not found"}), 404
-    return jsonify(data)
+    @app.route("/api/data/<variant_name>")
+    def api_data(variant_name):
+        data = runtime.get_snapshot(variant_name)
+        if not data:
+            return jsonify({"error": "Not found"}), 404
+        return jsonify(data)
 
-@app.route("/api/events/<variant_name>")
-def api_events(variant_name):
-    vt_symbol = request.args.get("vt_symbol", "")
-    start = request.args.get("start", "")
-    end = request.args.get("end", "")
-    event_type = request.args.get("type", "")
-    limit = request.args.get("limit", "2000")
-    if postgres_ready():
-        events = postgres_reader.get_events(
+    @app.route("/api/snapshot/<variant_name>")
+    def api_snapshot(variant_name):
+        data = runtime.get_snapshot(variant_name)
+        if not data:
+            return jsonify({"error": "Not found"}), 404
+        return jsonify(data)
+
+    @app.route("/api/events/<variant_name>")
+    def api_events(variant_name):
+        if not runtime.snapshot_reader._db_available():
+            return jsonify([])
+        vt_symbol = request.args.get("vt_symbol", "")
+        start = request.args.get("start", "")
+        end = request.args.get("end", "")
+        event_type = request.args.get("type", "")
+        limit = _normalize_limit(request.args.get("limit", "2000"), 2000, 5000)
+        events = runtime.snapshot_reader.get_events(
             variant=variant_name,
             vt_symbol=vt_symbol,
             start=start,
             end=end,
             event_type=event_type,
-            limit=int(limit) if str(limit).isdigit() else 2000,
+            limit=limit,
         )
         return jsonify(events)
-    return jsonify([])
 
+    @app.route("/api/decisions/<variant_name>")
+    def api_decisions(variant_name):
+        vt_symbol = request.args.get("vt_symbol", "")
+        limit = _normalize_limit(request.args.get("limit", "120"), 120, 500)
+        return jsonify(runtime.get_decisions(variant_name, vt_symbol, limit))
 
-@app.route("/api/decisions/<variant_name>")
-def api_decisions(variant_name):
-    """读取决策轨迹，优先来自 monitor_signal_event，回退到快照 recent_decisions。"""
-    vt_symbol = request.args.get("vt_symbol", "")
-    limit = request.args.get("limit", "120")
-    try:
-        limit_int = int(limit) if str(limit).isdigit() else 120
-    except Exception:
-        limit_int = 120
-    limit_int = max(1, min(limit_int, 500))
-
-    if postgres_ready():
-        events = postgres_reader.get_events(
-            variant=variant_name,
-            vt_symbol=vt_symbol,
-            event_type="decision_trace",
-            limit=limit_int,
-        )
-        return jsonify({"items": events, "source": "events"})
-
-    snapshot = get_snapshot_best_effort(variant_name) or {}
-    decisions = list(snapshot.get("recent_decisions", []) or [])
-    if vt_symbol:
-        decisions = [item for item in decisions if str(item.get("vt_symbol", "") or "") == vt_symbol]
-    decisions = decisions[:limit_int]
-    return jsonify({"items": decisions, "source": "snapshot"})
-
-@app.route("/api/bars")
-def api_bars():
-    vt_symbol = request.args.get("vt_symbol", "")
-    start = request.args.get("start", "")
-    end = request.args.get("end", "")
-    interval = request.args.get("interval", "1m")
-    limit = request.args.get("limit", "5000")
-    if postgres_ready():
-        bars = postgres_reader.get_bars(
+    @app.route("/api/bars")
+    def api_bars():
+        if not runtime.snapshot_reader._db_available():
+            return jsonify([])
+        vt_symbol = request.args.get("vt_symbol", "")
+        start = request.args.get("start", "")
+        end = request.args.get("end", "")
+        interval = request.args.get("interval", "1m")
+        limit = _normalize_limit(request.args.get("limit", "5000"), 5000, 5000)
+        bars = runtime.snapshot_reader.get_bars(
             vt_symbol=vt_symbol,
             start=start,
             end=end,
             interval=interval,
-            limit=int(limit) if str(limit).isdigit() else 5000,
+            limit=limit,
         )
         return jsonify(bars)
-    return jsonify([])
 
-if socketio is not None:
-    @socketio.on("subscribe")
-    def handle_subscribe(data):
-        try:
-            variant = ""
-            if isinstance(data, dict):
-                variant = str(data.get("variant", "") or "")
-            if variant:
-                join_room(f"variant:{variant}")
-        except Exception:
-            return
+    if start_background_services:
+        runtime.start_background_tasks()
 
-    def poll_db():
-        postgres_reader.ensure_tables()
-        last_snapshot: dict = {}  # {strategy_name: saved_at}
-        last_event_id = 0
-        poll_interval = float(os.getenv("MONITOR_POLL_INTERVAL", "1.0") or 1.0)
-        while True:
-            try:
-                # --- Snapshot polling via strategy_state table ---
-                try:
-                    strategies = state_reader.list_available_strategies()
-                    for s in strategies:
-                        variant = s.get("variant", "")
-                        last_update = s.get("last_update", "")
-                        last = last_snapshot.get(variant)
-                        if last is None or (last_update and last_update > last):
-                            last_snapshot[variant] = last_update
-                            payload = state_reader.get_strategy_data(variant)
-                            if payload:
-                                socketio.emit("snapshot_update", payload, room=f"variant:{variant}")
-                except Exception:
-                    pass
+    return app
 
-                # --- Event polling via monitor_signal_event table (unchanged) ---
-                if postgres_ready():
-                    try:
-                        conn = postgres_reader._connect()
-                        if conn is not None:
-                            try:
-                                with conn.cursor() as cursor:
-                                    cursor.execute(
-                                        "SELECT id, variant, instance_id, vt_symbol, bar_dt, event_type, event_key, created_at, payload_json "
-                                        "FROM monitor_signal_event WHERE id>%s ORDER BY id ASC LIMIT 500",
-                                        (last_event_id,),
-                                    )
-                                    event_rows = cursor.fetchall() or []
-                                    for e in event_rows:
-                                        last_event_id = max(last_event_id, int(e.get("id", 0) or 0))
-                                        variant = e.get("variant", "")
-                                        payload = e.get("payload_json")
-                                        if isinstance(payload, str):
-                                            try:
-                                                payload_obj = json.loads(payload)
-                                            except Exception:
-                                                payload_obj = {"raw": payload}
-                                        elif isinstance(payload, dict):
-                                            payload_obj = payload
-                                        else:
-                                            payload_obj = {}
-                                        out = dict(e)
-                                        out["payload"] = payload_obj
-                                        out.pop("payload_json", None)
-                                        if variant:
-                                            socketio.emit("event_new", out, room=f"variant:{variant}")
-                            finally:
-                                try:
-                                    conn.close()
-                                except Exception:
-                                    pass
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-            socketio.sleep(poll_interval)
 
-    try:
-        socketio.start_background_task(poll_db)
-    except Exception:
-        pass
+app = create_app(start_background_services=False)
+
 
 if __name__ == "__main__":
-    if socketio is not None:
-        socketio.run(
-            app,
-            host="0.0.0.0",
-            port=5007,
-            debug=True,
-            use_reloader=False,
-            allow_unsafe_werkzeug=True,
-        )
-    else:
-        app.run(host="0.0.0.0", port=5007, debug=True, use_reloader=False)
+    runtime = app.extensions["monitor_runtime"]
+    runtime.start_background_tasks()
+    socketio.run(
+        app,
+        host="0.0.0.0",
+        port=5007,
+        debug=True,
+        use_reloader=False,
+        allow_unsafe_werkzeug=True,
+    )

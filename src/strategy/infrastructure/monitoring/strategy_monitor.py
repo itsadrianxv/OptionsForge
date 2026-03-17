@@ -1,4 +1,5 @@
 import os
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -7,19 +8,22 @@ from peewee import PostgresqlDatabase
 from ...domain.aggregate.instrument_manager import InstrumentManager
 from ...domain.aggregate.position_aggregate import PositionAggregate
 from ..persistence.json_serializer import JsonSerializer
-from src.strategy.infrastructure.monitoring.model.monitor_signal_event_po import (
-    MonitorSignalEventPO,
-)
-from src.strategy.infrastructure.monitoring.model.monitor_signal_snapshot_po import (
-    MonitorSignalSnapshotPO,
+from .model.monitor_signal_event_po import MonitorSignalEventPO
+from .model.monitor_signal_snapshot_po import MonitorSignalSnapshotPO
+from .notification_protocol import (
+    MONITOR_DECISION_TRACE_UPDATES_CHANNEL,
+    MONITOR_SNAPSHOT_UPDATES_CHANNEL,
+    build_decision_trace_notification,
+    build_snapshot_notification,
+    encode_notification_payload,
 )
 
 
 class StrategyMonitor:
     """
-    负责策略的监控与快照逻辑。
+    Persist monitor snapshots and decision events for the web terminal.
 
-    统一使用 Postgres 持久化，不再落地本地文件快照。
+    Runtime monitoring stays in dedicated monitor tables, separate from restart state.
     """
 
     def __init__(
@@ -50,11 +54,8 @@ class StrategyMonitor:
         self._json_serializer = JsonSerializer()
 
     def _serialize_payload(self, payload: Dict[str, Any]) -> str:
-        """将监控 payload 序列化为 JSON 文本（不注入 schema_version）。"""
-        return self._json_serializer.serialize(
-            payload,
-            inject_schema_version=False,
-        )
+        """Serialize monitor payload without injecting restart schema metadata."""
+        return self._json_serializer.serialize(payload, inject_schema_version=False)
 
     def _monitor_db_available(self) -> bool:
         if not self.monitor_db_enabled:
@@ -100,6 +101,42 @@ class StrategyMonitor:
         except Exception:
             return
 
+    @staticmethod
+    def _extract_insert_id(row: Any) -> Optional[int]:
+        if row is None:
+            return None
+        if isinstance(row, dict):
+            raw = row.get("id")
+        elif isinstance(row, (tuple, list)):
+            raw = row[0] if row else None
+        else:
+            raw = row
+        try:
+            return int(raw) if raw is not None else None
+        except Exception:
+            return None
+
+    @staticmethod
+    def extract_delivery_month(vt_symbol: str) -> str:
+        try:
+            symbol = str(vt_symbol or "").split(".", 1)[0]
+            match_4 = re.search(r"[a-zA-Z]+(2\d{3})", symbol)
+            if match_4:
+                return match_4.group(1)
+            match_3 = re.search(r"[a-zA-Z]+([6-9]\d{2})", symbol)
+            if match_3:
+                return "2" + match_3.group(1)
+        except Exception:
+            pass
+        return "Other"
+
+    @staticmethod
+    def _notify(db: PostgresqlDatabase, channel: str, payload: Dict[str, Any]) -> None:
+        db.execute_sql(
+            "SELECT pg_notify(%s, %s)",
+            (channel, encode_notification_payload(payload)),
+        )
+
     def _upsert_monitor_snapshot(
         self,
         payload: Dict[str, Any],
@@ -118,33 +155,45 @@ class StrategyMonitor:
         except Exception:
             return
 
+        sql = """
+            INSERT INTO monitor_signal_snapshot (
+                variant,
+                instance_id,
+                updated_at,
+                bar_dt,
+                bar_interval,
+                bar_window,
+                payload_json
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (variant, instance_id) DO UPDATE SET
+                updated_at = EXCLUDED.updated_at,
+                bar_dt = EXCLUDED.bar_dt,
+                bar_interval = EXCLUDED.bar_interval,
+                bar_window = EXCLUDED.bar_window,
+                payload_json = EXCLUDED.payload_json
+        """
+        params = (
+            self.variant_name,
+            self.monitor_instance_id,
+            now_dt,
+            bar_dt,
+            bar_interval,
+            bar_window,
+            payload_text,
+        )
         try:
             self._bind_models(db)
             with db.connection_context():
-                (
-                    MonitorSignalSnapshotPO.insert(
+                db.execute_sql(sql, params)
+                self._notify(
+                    db,
+                    MONITOR_SNAPSHOT_UPDATES_CHANNEL,
+                    build_snapshot_notification(
                         variant=self.variant_name,
                         instance_id=self.monitor_instance_id,
-                        updated_at=now_dt,
-                        bar_dt=bar_dt,
-                        bar_interval=bar_interval,
-                        bar_window=bar_window,
-                        payload_json=payload_text,
-                    )
-                    .on_conflict(
-                        conflict_target=[
-                            MonitorSignalSnapshotPO.variant,
-                            MonitorSignalSnapshotPO.instance_id,
-                        ],
-                        update={
-                            MonitorSignalSnapshotPO.updated_at: now_dt,
-                            MonitorSignalSnapshotPO.bar_dt: bar_dt,
-                            MonitorSignalSnapshotPO.bar_interval: bar_interval,
-                            MonitorSignalSnapshotPO.bar_window: bar_window,
-                            MonitorSignalSnapshotPO.payload_json: payload_text,
-                        },
-                    )
-                    .execute()
+                        updated_at=now_dt.isoformat(),
+                    ),
                 )
         except Exception:
             return
@@ -157,11 +206,11 @@ class StrategyMonitor:
         vt_symbol: str,
         bar_dt: Optional[datetime],
         created_at: Optional[datetime] = None,
-    ) -> None:
+    ) -> Optional[int]:
         self._ensure_monitor_tables()
         db = self._monitor_db_connect()
         if db is None:
-            return
+            return None
 
         if not created_at:
             created_at = datetime.now()
@@ -169,10 +218,55 @@ class StrategyMonitor:
         try:
             payload_text = self._serialize_payload(payload)
         except Exception:
-            return
+            return None
+
+        sql = """
+            INSERT INTO monitor_signal_event (
+                variant,
+                instance_id,
+                vt_symbol,
+                bar_dt,
+                event_type,
+                event_key,
+                created_at,
+                payload_json
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (event_key) DO NOTHING
+            RETURNING id
+        """
+        params = (
+            self.variant_name,
+            self.monitor_instance_id,
+            vt_symbol or "",
+            bar_dt,
+            event_type,
+            event_key,
+            created_at,
+            payload_text,
+        )
+        try:
+            self._bind_models(db)
+            with db.connection_context():
+                cursor = db.execute_sql(sql, params)
+                inserted_id = self._extract_insert_id(cursor.fetchone() if cursor else None)
+                if inserted_id is not None and event_type == "decision_trace":
+                    self._notify(
+                        db,
+                        MONITOR_DECISION_TRACE_UPDATES_CHANNEL,
+                        build_decision_trace_notification(
+                            variant=self.variant_name,
+                            instance_id=self.monitor_instance_id,
+                            event_id=inserted_id,
+                            event_type=event_type,
+                        ),
+                    )
+                return inserted_id
+        except Exception:
+            return None
 
     def record_decision_trace(self, payload: Dict[str, Any]) -> None:
-        """记录决策流水线轨迹。"""
+        """Persist a structured decision trace for the monitor terminal."""
         vt_symbol = str(payload.get("vt_symbol", "") or "")
         bar_dt = self.parse_bar_dt(payload.get("bar_dt"))
         trace_id = str(payload.get("trace_id", "") or "")
@@ -188,26 +282,6 @@ class StrategyMonitor:
             vt_symbol=vt_symbol,
             bar_dt=bar_dt,
         )
-
-        try:
-            self._bind_models(db)
-            with db.connection_context():
-                (
-                    MonitorSignalEventPO.insert(
-                        variant=self.variant_name,
-                        instance_id=self.monitor_instance_id,
-                        vt_symbol=vt_symbol or "",
-                        bar_dt=bar_dt,
-                        event_type=event_type,
-                        event_key=event_key,
-                        created_at=created_at,
-                        payload_json=payload_text,
-                    )
-                    .on_conflict_ignore()
-                    .execute()
-                )
-        except Exception:
-            return
 
     def parse_bar_dt(self, bar_dt_value: Any) -> Optional[datetime]:
         if isinstance(bar_dt_value, datetime):
@@ -228,9 +302,7 @@ class StrategyMonitor:
         position_aggregate: PositionAggregate,
         strategy_context: Any,
     ) -> None:
-        """
-        生成并保存用于 Web 监控的快照数据（统一写入 Postgres）。
-        """
+        """Generate and persist a web-ready monitor snapshot."""
         try:
             max_bars = 300
             instruments_data: Dict[str, Any] = {}
@@ -253,23 +325,16 @@ class StrategyMonitor:
                 if tail_df is not None:
                     for _, row in tail_df.iterrows():
                         dt = row.get("datetime")
-                        if isinstance(dt, str):
-                            dt_str = dt
-                        else:
-                            dt_str = dt.strftime("%Y-%m-%d %H:%M:%S") if dt else ""
-
+                        dt_str = dt if isinstance(dt, str) else dt.strftime("%Y-%m-%d %H:%M:%S") if dt else ""
                         dates.append(dt_str)
-                        low = row.get("low")
-                        high = row.get("high")
                         ohlc.append([
                             row.get("open"),
                             row.get("close"),
-                            low,
-                            high,
+                            row.get("low"),
+                            row.get("high"),
                         ])
                         volumes.append(row.get("volume", 0))
 
-                # 指标数据和状态由具体策略实现决定，此处仅记录基础 OHLCV
                 status = {}
 
                 tail_last_dt = None
@@ -283,6 +348,7 @@ class StrategyMonitor:
                     snapshot_bar_dt is None or tail_last_dt_parsed > snapshot_bar_dt
                 ):
                     snapshot_bar_dt = tail_last_dt_parsed
+
                 instruments_data[vt_symbol] = {
                     "dates": dates,
                     "ohlc": ohlc,
@@ -290,7 +356,7 @@ class StrategyMonitor:
                     "indicators": instrument.indicators if hasattr(instrument, "indicators") else {},
                     "status": status,
                     "last_price": float(getattr(instrument, "latest_close", 0.0) or 0.0),
-                    "delivery_month": "Other",
+                    "delivery_month": self.extract_delivery_month(vt_symbol),
                 }
 
             positions_list: List[Dict[str, Any]] = []
@@ -380,10 +446,9 @@ class StrategyMonitor:
 
             if self.logger:
                 self.logger.debug(
-                    f"监控快照已写入 Postgres: variant={self.variant_name}, instance={self.monitor_instance_id}"
+                    f"Monitor snapshot saved to Postgres: variant={self.variant_name}, instance={self.monitor_instance_id}"
                 )
 
-        except Exception as e:
+        except Exception as exc:
             if self.logger:
-                self.logger.error(f"保存监控快照失败: {str(e)}")
-            pass
+                self.logger.error(f"Failed to save monitor snapshot: {exc}")

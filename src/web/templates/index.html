@@ -910,8 +910,8 @@
                     <strong class="overview-value overview-value-code" id="snapshot-lag">等待数据</strong>
                 </div>
                 <div class="overview-card">
-                    <span class="overview-label">轮询周期</span>
-                    <strong class="overview-value overview-value-code" id="poll-interval">-</strong>
+                    <span class="overview-label">心跳周期</span>
+                    <strong class="overview-value overview-value-code" id="heartbeat-interval">-</strong>
                 </div>
                 <div class="overview-card">
                     <span class="overview-label">标的数</span>
@@ -951,11 +951,7 @@
             </div>
 
             <div class="control-actions">
-                <button class="btn btn-refresh btn-sm" type="button" onclick="fetchData()">立即刷新</button>
-                <div class="switch-row">
-                    <label id="auto-refresh-label" for="auto-refresh">自动刷新</label>
-                    <input class="form-check-input" type="checkbox" id="auto-refresh" checked>
-                </div>
+                <button class="btn btn-refresh btn-sm" type="button" onclick="refreshCurrentData()">立即刷新</button>
             </div>
         </div>
     </header>
@@ -1053,9 +1049,11 @@
     let selectedDecisionTraceId = '';
     let socket = null;
     let lastSnapshotAtMs = 0;
+    let lastHeartbeatAtMs = 0;
+    let hasSocketConnectedOnce = false;
     window.INIT_VARIANT = "{{ (variant or '')|e }}";
-    const FRONT_POLL_MS = Number("{{ (front_poll_ms or 3000)|int }}");
-    const FRONT_STALE_MS = Number("{{ (front_stale_ms or 5000)|int }}");
+    const HEARTBEAT_SEC = Number("{{ (heartbeat_sec or 5)|int }}");
+    const HEARTBEAT_TIMEOUT_MS = Math.max(HEARTBEAT_SEC * 3000, 10000);
 
     const INDICATOR_COLORS = [
         '#91b6ff', '#d9ac58', '#74b982', '#de7766', '#8db2d6',
@@ -1069,6 +1067,12 @@
         document.body.classList.toggle('feed-live', !!isLive);
         liveStatus.classList.toggle('is-live', !!isLive);
         liveLabel.textContent = isLive ? 'LIVE' : 'WAIT';
+    }
+
+    function updateConnectionState() {
+        const heartbeatFresh = !!lastHeartbeatAtMs && (Date.now() - lastHeartbeatAtMs <= HEARTBEAT_TIMEOUT_MS);
+        const connected = !!(socket && socket.connected);
+        setFreshnessState(connected && heartbeatFresh);
     }
 
     function updateSnapshotLag() {
@@ -1276,7 +1280,6 @@
         renderOrders(rawData.orders);
         renderPositions(rawData.positions);
         mergeSnapshotDecisions(rawData.recent_decisions || []);
-        setFreshnessState(true);
         updateSnapshotLag();
     }
 
@@ -1473,7 +1476,12 @@
         if (!socket || !socket.connected) return;
         const sel = document.getElementById('strategy-select');
         const variant = sel.value;
-        if (!variant) return;
+        if (!variant) {
+            try {
+                socket.emit('unsubscribe');
+            } catch (e) {}
+            return;
+        }
         try {
             socket.emit('subscribe', { variant: variant });
         } catch (e) {}
@@ -1490,11 +1498,24 @@
 
         socket.on('connect', function () {
             subscribeCurrentVariant();
-            setFreshnessState(true);
+            if (hasSocketConnectedOnce) {
+                refreshCurrentData();
+            }
+            hasSocketConnectedOnce = true;
+            updateConnectionState();
         });
 
         socket.on('disconnect', function () {
-            setFreshnessState(false);
+            updateConnectionState();
+        });
+
+        socket.on('subscription_state', function () {
+            updateConnectionState();
+        });
+
+        socket.on('heartbeat', function () {
+            lastHeartbeatAtMs = Date.now();
+            updateConnectionState();
         });
 
         socket.on('snapshot_update', function (data) {
@@ -1537,14 +1558,17 @@
                 sel.value = window.INIT_VARIANT;
             }
 
-            fetchData();
+            if (!sel.value && strategies.length > 0) {
+                sel.value = strategies[0];
+            }
             sel.addEventListener('change', function () {
                 document.getElementById('month-select').innerHTML = '<option value="all">所有月份</option>';
                 document.getElementById('symbol-select').innerHTML = '<option value="">所有标的</option>';
                 currentData = null;
                 decisionDataset = [];
                 selectedDecisionTraceId = '';
-                fetchData();
+                subscribeCurrentVariant();
+                refreshCurrentData();
             });
 
             document.getElementById('month-select').addEventListener('change', function () {
@@ -1562,17 +1586,16 @@
         }
     }
 
-    async function fetchData() {
+    async function refreshCurrentData() {
         const sel = document.getElementById('strategy-select');
         if (!sel.value) return;
 
         try {
             const resp = await axios.get('/api/data/' + sel.value);
             applySnapshot(resp.data);
-            fetchDecisionData();
-            subscribeCurrentVariant();
+            await fetchDecisionData();
         } catch (e) {
-            setFreshnessState(false);
+            updateConnectionState();
             console.error('获取数据错误:', e);
         }
     }
@@ -1720,26 +1743,25 @@
         myChart.resize();
     });
 
-    const pollLabel = document.getElementById('poll-interval');
-    if (pollLabel) pollLabel.textContent = (Math.round(FRONT_POLL_MS / 100) / 10) + 's';
+    const heartbeatLabel = document.getElementById('heartbeat-interval');
+    if (heartbeatLabel) heartbeatLabel.textContent = HEARTBEAT_SEC + 's';
 
-    const autoLabel = document.getElementById('auto-refresh-label');
-    if (autoLabel) autoLabel.textContent = '自动刷新 (' + (Math.round(FRONT_POLL_MS / 100) / 10) + 's)';
 
-    setFreshnessState(false);
-    loadStrategies();
-    initSocket();
+    async function bootstrapPage() {
+        setFreshnessState(false);
+        await loadStrategies();
+        await refreshCurrentData();
+        initSocket();
+        updateSnapshotLag();
+        updateConnectionState();
+    }
+
+    bootstrapPage();
 
     setInterval(function () {
-        const autoRefresh = document.getElementById('auto-refresh');
-        if (!autoRefresh || !autoRefresh.checked) return;
-
-        const stale = !lastSnapshotAtMs || (Date.now() - lastSnapshotAtMs > FRONT_STALE_MS);
-        if (!socket || !socket.connected || stale) fetchData();
-
-        setFreshnessState(!stale);
         updateSnapshotLag();
-    }, FRONT_POLL_MS);
+        updateConnectionState();
+    }, 1000);
 </script>
 </body>
 </html>

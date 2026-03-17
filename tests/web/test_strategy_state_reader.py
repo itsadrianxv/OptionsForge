@@ -6,7 +6,9 @@
 - 正常快照的完整转换流程 (Requirements 2.4)
 """
 
+import base64
 import json
+import zlib
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -183,3 +185,52 @@ class TestNormalFlow:
         with patch.object(reader, "_connect", return_value=mock_conn):
             result = reader.get_strategy_data("nonexistent")
         assert result is None
+
+    def test_get_strategy_data_invalid_compressed_snapshot(self):
+        reader = StrategyStateReader({"host": "localhost", "user": "root", "database": "test"})
+        mock_conn, _ = _make_mock_conn(
+            fetchone_return={"snapshot_json": "ZLIB:not-valid-base64"}
+        )
+        with patch.object(reader, "_connect", return_value=mock_conn):
+            result = reader.get_strategy_data("compressed")
+        assert result is None
+
+    def test_get_strategy_data_compressed_snapshot(self):
+        snapshot = {
+            "current_dt": {"__datetime__": "2025-01-15T14:30:00+08:00"},
+            "target_aggregate": {
+                "instruments": {
+                    "rb2501.SHFE": {
+                        "bars": {
+                            "__dataframe__": True,
+                            "records": [
+                                {
+                                    "datetime": "2025-01-15 14:29:00",
+                                    "open": 3500.0,
+                                    "close": 3505.0,
+                                    "low": 3498.0,
+                                    "high": 3510.0,
+                                    "volume": 1200,
+                                }
+                            ],
+                        },
+                        "indicators": {},
+                    }
+                }
+            },
+            "position_aggregate": {"positions": {}, "pending_orders": {}},
+        }
+        encoded = base64.b64encode(
+            zlib.compress(json.dumps(snapshot).encode("utf-8"))
+        ).decode("ascii")
+        reader = StrategyStateReader({"host": "localhost", "user": "root", "database": "test"})
+        mock_conn, _ = _make_mock_conn(
+            fetchone_return={"snapshot_json": "ZLIB:" + encoded}
+        )
+        with patch.object(reader, "_connect", return_value=mock_conn):
+            result = reader.get_strategy_data("15m")
+
+        assert result is not None
+        assert result["variant"] == "15m"
+        assert result["timestamp"] == "2025-01-15 14:30:00"
+        assert "rb2501.SHFE" in result["instruments"]

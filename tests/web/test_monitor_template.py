@@ -32,6 +32,8 @@ def test_monitor_template_renders_core_regions() -> None:
     assert 'id="chart-container"' in html
     assert 'id="decision-timeline"' in html
     assert 'id="variant-name"' in html
+    assert 'id="heartbeat-interval"' in html
+    assert 'id="auto-refresh"' not in html
 
 
 def test_monitor_template_preserves_initial_variant_binding() -> None:

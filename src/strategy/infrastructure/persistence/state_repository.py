@@ -33,6 +33,16 @@ COMPRESSION_PREFIX = "ZLIB:"
 DEFAULT_COMPRESSION_THRESHOLD = 10 * 1024  # 10KB
 
 
+def decode_stored_snapshot(stored: str) -> str:
+    """Decode a stored strategy snapshot, transparently handling compressed payloads."""
+    if stored.startswith(COMPRESSION_PREFIX):
+        encoded = stored[len(COMPRESSION_PREFIX):]
+        compressed = base64.b64decode(encoded)
+        raw_bytes = zlib.decompress(compressed)
+        return raw_bytes.decode("utf-8")
+    return stored
+
+
 @dataclass
 class ArchiveNotFound:
     """表示数据库中无该策略状态记录的结果类型"""

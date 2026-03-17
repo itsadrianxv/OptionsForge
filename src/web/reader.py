@@ -4,6 +4,8 @@ import glob
 import pickle
 import json
 import re
+from contextlib import contextmanager
+from threading import Lock
 import pandas as pd
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -11,9 +13,11 @@ from typing import Any, Dict, List, Optional, Tuple
 try:
     import psycopg2
     from psycopg2.extras import RealDictCursor
+    from psycopg2.pool import ThreadedConnectionPool
 except Exception:
     psycopg2 = None
     RealDictCursor = None
+    ThreadedConnectionPool = None
 
 # 将项目根目录添加到 sys.path 以允许反序列化策略对象
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -21,6 +25,127 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(os.path.dirname(current_dir))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
+
+from src.strategy.infrastructure.persistence.state_repository import decode_stored_snapshot
+
+
+_POOL_LOCK = Lock()
+_POOLED_CONNECTION_LOCK = Lock()
+_SHARED_POOLS: Dict[Tuple[str, int, str, str], Any] = {}
+_POOLED_CONNECTIONS: Dict[int, Any] = {}
+
+
+def _build_pool_key(db_config: Dict[str, Any]) -> Tuple[str, int, str, str]:
+    return (
+        str(db_config.get("host", "") or ""),
+        int(db_config.get("port", 5432) or 5432),
+        str(db_config.get("user", "") or ""),
+        str(db_config.get("database", "") or ""),
+    )
+
+
+def _create_direct_connection(
+    db_config: Dict[str, Any],
+    *,
+    cursor_factory: Any = RealDictCursor,
+):
+    if psycopg2 is None:
+        return None
+    kwargs = {
+        "host": db_config["host"],
+        "port": int(db_config.get("port", 5432)),
+        "user": db_config["user"],
+        "password": db_config.get("password", ""),
+        "dbname": db_config["database"],
+    }
+    if cursor_factory is not None:
+        kwargs["cursor_factory"] = cursor_factory
+    conn = psycopg2.connect(**kwargs)
+    conn.autocommit = True
+    return conn
+
+
+def _get_shared_pool(db_config: Dict[str, Any]):
+    if ThreadedConnectionPool is None:
+        return None
+    key = _build_pool_key(db_config)
+    with _POOL_LOCK:
+        pool = _SHARED_POOLS.get(key)
+        if pool is None:
+            maxconn = max(int(os.getenv("MONITOR_DB_POOL_MAXCONN", "8") or 8), 2)
+            pool = ThreadedConnectionPool(
+                1,
+                maxconn,
+                host=db_config["host"],
+                port=int(db_config.get("port", 5432)),
+                user=db_config["user"],
+                password=db_config.get("password", ""),
+                dbname=db_config["database"],
+            )
+            _SHARED_POOLS[key] = pool
+        return pool
+
+
+class _BasePostgresReader:
+    def __init__(self, db_config: Dict[str, Any]):
+        self._db_config = db_config or {}
+
+    def _db_available(self) -> bool:
+        cfg = self._db_config or {}
+        return bool(cfg.get("host") and cfg.get("user") and cfg.get("database"))
+
+    def _connect(self):
+        if not self._db_available():
+            return None
+        try:
+            pool = _get_shared_pool(self._db_config)
+            if pool is not None:
+                conn = pool.getconn()
+                conn.autocommit = True
+                with _POOLED_CONNECTION_LOCK:
+                    _POOLED_CONNECTIONS[id(conn)] = pool
+                return conn
+        except Exception:
+            pass
+        try:
+            return _create_direct_connection(self._db_config)
+        except Exception:
+            return None
+
+    def _connect_listener(self):
+        if not self._db_available():
+            return None
+        try:
+            return _create_direct_connection(self._db_config, cursor_factory=None)
+        except Exception:
+            return None
+
+    def _release_connection(self, conn) -> None:
+        if conn is None:
+            return
+        with _POOLED_CONNECTION_LOCK:
+            pool = _POOLED_CONNECTIONS.pop(id(conn), None)
+        if pool is not None:
+            try:
+                pool.putconn(conn)
+            except Exception:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            return
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    @contextmanager
+    def _connection(self):
+        conn = self._connect()
+        try:
+            yield conn
+        finally:
+            self._release_connection(conn)
 
 class SnapshotJsonTransformer:
     """将 strategy_state 的 snapshot_json 转换为前端格式"""
@@ -956,4 +1081,410 @@ class PostgresSnapshotReader:
             return IntervalEnum.DAILY
         if t in ("w", "week", "weekly"):
             return IntervalEnum.WEEKLY if hasattr(IntervalEnum, "WEEKLY") else None
+        return None
+
+
+def _load_payload_value(payload: Any) -> Optional[Dict[str, Any]]:
+    if isinstance(payload, dict):
+        return payload
+    if isinstance(payload, str):
+        try:
+            obj = json.loads(payload)
+            return obj if isinstance(obj, dict) else None
+        except Exception:
+            return None
+    return None
+
+
+class StrategyStateReader(_BasePostgresReader):
+    """Read strategy_state snapshots and adapt them for the monitor frontend."""
+
+    def __init__(self, db_config: dict):
+        super().__init__(db_config)
+
+    def list_available_strategies(self) -> List[Dict[str, Any]]:
+        with self._connection() as conn:
+            if conn is None:
+                return []
+            try:
+                with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                    cursor.execute(
+                        """
+                        SELECT strategy_name, MAX(saved_at) AS last_update
+                        FROM strategy_state
+                        GROUP BY strategy_name
+                        ORDER BY strategy_name
+                        """
+                    )
+                    rows = cursor.fetchall() or []
+                result = []
+                for row in rows:
+                    dt = row.get("last_update")
+                    dt_text = dt.strftime("%Y-%m-%d %H:%M:%S") if isinstance(dt, datetime) else str(dt) if dt else ""
+                    result.append(
+                        {
+                            "variant": row.get("strategy_name", ""),
+                            "last_update": dt_text,
+                            "file_size": None,
+                        }
+                    )
+                return result
+            except Exception:
+                return []
+
+    def get_strategy_data(self, strategy_name: str) -> Optional[Dict[str, Any]]:
+        if not strategy_name:
+            return None
+        with self._connection() as conn:
+            if conn is None:
+                return None
+            try:
+                with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                    cursor.execute(
+                        """
+                        SELECT snapshot_json
+                        FROM strategy_state
+                        WHERE strategy_name=%s
+                        ORDER BY saved_at DESC
+                        LIMIT 1
+                        """,
+                        (strategy_name,),
+                    )
+                    row = cursor.fetchone()
+                if not row:
+                    return None
+                snapshot = row.get("snapshot_json")
+                if snapshot is None:
+                    return None
+                if isinstance(snapshot, str):
+                    try:
+                        snapshot = json.loads(decode_stored_snapshot(snapshot))
+                    except Exception:
+                        return None
+                if not isinstance(snapshot, dict):
+                    return None
+                return SnapshotJsonTransformer.transform(snapshot, strategy_name)
+            except Exception:
+                return None
+
+
+class PostgresSnapshotReader(_BasePostgresReader):
+    def __init__(self):
+        super().__init__(
+            {
+                "host": os.getenv("VNPY_DATABASE_HOST", "") or "",
+                "port": int(os.getenv("VNPY_DATABASE_PORT", "5432") or 5432),
+                "user": os.getenv("VNPY_DATABASE_USER", "") or "",
+                "password": os.getenv("VNPY_DATABASE_PASSWORD", "") or "",
+                "database": os.getenv("VNPY_DATABASE_DATABASE", "") or "",
+            }
+        )
+        self.instance_id = os.getenv("MONITOR_INSTANCE_ID", "default") or "default"
+        self._tables_ensured = False
+
+    def ensure_tables(self) -> None:
+        if self._tables_ensured:
+            return
+        with self._connection() as conn:
+            if conn is None:
+                return
+            try:
+                with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                    cursor.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS monitor_signal_snapshot (
+                          id BIGSERIAL PRIMARY KEY,
+                          variant VARCHAR(64) NOT NULL,
+                          instance_id VARCHAR(64) NOT NULL,
+                          updated_at TIMESTAMP(6) NOT NULL,
+                          bar_dt TIMESTAMP(6) NULL,
+                          bar_interval VARCHAR(16) NULL,
+                          bar_window INT NULL,
+                          payload_json JSONB NOT NULL,
+                          CONSTRAINT uk_variant_instance UNIQUE (variant, instance_id)
+                        );
+                        """
+                    )
+                    cursor.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS idx_monitor_signal_snapshot_updated_at
+                        ON monitor_signal_snapshot (updated_at);
+                        """
+                    )
+                    cursor.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS idx_monitor_signal_snapshot_bar_dt
+                        ON monitor_signal_snapshot (bar_dt);
+                        """
+                    )
+                    cursor.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS monitor_signal_event (
+                          id BIGSERIAL PRIMARY KEY,
+                          variant VARCHAR(64) NOT NULL,
+                          instance_id VARCHAR(64) NOT NULL,
+                          vt_symbol VARCHAR(64) NOT NULL,
+                          bar_dt TIMESTAMP(6) NULL,
+                          event_type VARCHAR(32) NOT NULL,
+                          event_key VARCHAR(192) NOT NULL,
+                          created_at TIMESTAMP(6) NOT NULL,
+                          payload_json JSONB NOT NULL,
+                          CONSTRAINT uk_event_key UNIQUE (event_key)
+                        );
+                        """
+                    )
+                    cursor.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS idx_monitor_signal_event_variant_created
+                        ON monitor_signal_event (variant, created_at);
+                        """
+                    )
+                    cursor.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS idx_monitor_signal_event_symbol_bar
+                        ON monitor_signal_event (vt_symbol, bar_dt);
+                        """
+                    )
+                    cursor.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS idx_monitor_signal_event_type_created
+                        ON monitor_signal_event (event_type, created_at);
+                        """
+                    )
+                self._tables_ensured = True
+            except Exception:
+                return
+
+    def list_available_strategies(self) -> List[Dict[str, Any]]:
+        self.ensure_tables()
+        with self._connection() as conn:
+            if conn is None:
+                return []
+            try:
+                with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                    cursor.execute(
+                        """
+                        SELECT variant, MAX(updated_at) AS last_update
+                        FROM monitor_signal_snapshot
+                        GROUP BY variant
+                        ORDER BY variant
+                        """
+                    )
+                    rows = cursor.fetchall() or []
+                result = []
+                for row in rows:
+                    dt = row.get("last_update")
+                    dt_text = dt.strftime("%Y-%m-%d %H:%M:%S") if isinstance(dt, datetime) else str(dt) if dt else ""
+                    result.append({"variant": row.get("variant", ""), "last_update": dt_text, "file_size": None})
+                return result
+            except Exception:
+                return []
+
+    def get_strategy_data(self, variant_name: str) -> Optional[Dict[str, Any]]:
+        if not variant_name:
+            return None
+        self.ensure_tables()
+        with self._connection() as conn:
+            if conn is None:
+                return None
+            try:
+                with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                    cursor.execute(
+                        """
+                        SELECT payload_json
+                        FROM monitor_signal_snapshot
+                        WHERE variant=%s
+                        ORDER BY updated_at DESC
+                        LIMIT 1
+                        """,
+                        (variant_name,),
+                    )
+                    row = cursor.fetchone()
+                if not row:
+                    return None
+                return _load_payload_value(row.get("payload_json"))
+            except Exception:
+                return None
+
+    def get_event_by_id(self, event_id: int) -> Optional[Dict[str, Any]]:
+        try:
+            event_id_int = int(event_id)
+        except Exception:
+            return None
+        self.ensure_tables()
+        with self._connection() as conn:
+            if conn is None:
+                return None
+            try:
+                with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                    cursor.execute(
+                        """
+                        SELECT id, variant, instance_id, vt_symbol, bar_dt, event_type, event_key, created_at, payload_json
+                        FROM monitor_signal_event
+                        WHERE id=%s
+                        LIMIT 1
+                        """,
+                        (event_id_int,),
+                    )
+                    row = cursor.fetchone()
+                if not row:
+                    return None
+                payload_obj = _load_payload_value(row.get("payload_json")) or {}
+                row["payload"] = payload_obj
+                row.pop("payload_json", None)
+                return row
+            except Exception:
+                return None
+
+    def get_events(
+        self,
+        variant: str,
+        vt_symbol: str = "",
+        start: str = "",
+        end: str = "",
+        event_type: str = "",
+        limit: int = 2000,
+    ) -> List[Dict[str, Any]]:
+        if not variant:
+            return []
+        self.ensure_tables()
+        with self._connection() as conn:
+            if conn is None:
+                return []
+            start_dt = self._parse_dt(start)
+            end_dt = self._parse_dt(end)
+            params: List[Any] = [variant]
+            where = ["variant=%s"]
+            if vt_symbol:
+                where.append("vt_symbol=%s")
+                params.append(vt_symbol)
+            if event_type:
+                where.append("event_type=%s")
+                params.append(event_type)
+            if start_dt:
+                where.append("created_at>=%s")
+                params.append(start_dt)
+            if end_dt:
+                where.append("created_at<=%s")
+                params.append(end_dt)
+            try:
+                limit_int = int(limit)
+            except Exception:
+                limit_int = 2000
+            if limit_int <= 0:
+                limit_int = 2000
+            if limit_int > 5000:
+                limit_int = 5000
+            try:
+                sql = (
+                    "SELECT id, variant, instance_id, vt_symbol, bar_dt, event_type, event_key, created_at, payload_json "
+                    "FROM monitor_signal_event "
+                    f"WHERE {' AND '.join(where)} "
+                    "ORDER BY id DESC "
+                    f"LIMIT {limit_int}"
+                )
+                with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                    cursor.execute(sql, tuple(params))
+                    rows = cursor.fetchall() or []
+                result: List[Dict[str, Any]] = []
+                for row in rows:
+                    payload_obj = _load_payload_value(row.get("payload_json")) or {}
+                    row["payload"] = payload_obj
+                    row.pop("payload_json", None)
+                    result.append(row)
+                return result
+            except Exception:
+                return []
+
+    def get_bars(
+        self,
+        vt_symbol: str,
+        start: str,
+        end: str,
+        interval: str = "1m",
+        limit: int = 5000,
+    ) -> List[Dict[str, Any]]:
+        symbol, exchange = self._split_vt_symbol(vt_symbol)
+        if not symbol or not exchange:
+            return []
+        start_dt = self._parse_dt(start)
+        end_dt = self._parse_dt(end)
+        if not start_dt or not end_dt:
+            return []
+        from vnpy.trader.constant import Exchange, Interval
+        from vnpy.trader.database import get_database
+
+        interval_enum = self._map_interval(interval, Interval) or Interval.MINUTE
+        try:
+            exchange_enum = Exchange(exchange)
+        except Exception:
+            return []
+        try:
+            db = get_database()
+            bars = db.load_bar_data(
+                symbol=symbol,
+                exchange=exchange_enum,
+                interval=interval_enum,
+                start=start_dt,
+                end=end_dt,
+            )
+        except Exception:
+            return []
+        try:
+            limit_int = int(limit)
+        except Exception:
+            limit_int = 5000
+        if limit_int <= 0:
+            limit_int = 5000
+        if len(bars) > limit_int:
+            bars = bars[-limit_int:]
+        result: List[Dict[str, Any]] = []
+        for bar in bars:
+            dt = getattr(bar, "datetime", None)
+            dt_text = dt.isoformat() if isinstance(dt, datetime) else str(dt) if dt else ""
+            result.append(
+                {
+                    "datetime": dt_text,
+                    "open": float(getattr(bar, "open_price", 0) or 0),
+                    "high": float(getattr(bar, "high_price", 0) or 0),
+                    "low": float(getattr(bar, "low_price", 0) or 0),
+                    "close": float(getattr(bar, "close_price", 0) or 0),
+                    "volume": float(getattr(bar, "volume", 0) or 0),
+                }
+            )
+        return result
+
+    def _split_vt_symbol(self, vt_symbol: str) -> Tuple[str, str]:
+        if not vt_symbol or "." not in vt_symbol:
+            return "", ""
+        parts = vt_symbol.split(".", 1)
+        if len(parts) != 2:
+            return "", ""
+        return parts[0], parts[1]
+
+    def _parse_dt(self, text: str) -> Optional[datetime]:
+        if not text:
+            return None
+        if isinstance(text, datetime):
+            return text
+        try:
+            return datetime.fromisoformat(text)
+        except Exception:
+            try:
+                return datetime.strptime(text, "%Y-%m-%d %H:%M:%S")
+            except Exception:
+                return None
+
+    def _map_interval(self, interval_text: str, interval_enum) -> Optional[Any]:
+        if not interval_text:
+            return None
+        token = str(interval_text).strip().lower()
+        if token in ("1m", "m", "min", "minute"):
+            return interval_enum.MINUTE
+        if token in ("1h", "h", "hour"):
+            return interval_enum.HOUR
+        if token in ("1d", "d", "day", "daily"):
+            return interval_enum.DAILY
+        if token in ("w", "week", "weekly"):
+            return interval_enum.WEEKLY if hasattr(interval_enum, "WEEKLY") else None
         return None
