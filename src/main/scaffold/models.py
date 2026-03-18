@@ -54,7 +54,7 @@ class ConfigOverride:
 
 @dataclass(frozen=True)
 class CreateOptions:
-    """`option-scaffold create` 输入参数。"""
+    """`optionforge create` 输入参数。"""
 
     name: str | None
     destination: Path
