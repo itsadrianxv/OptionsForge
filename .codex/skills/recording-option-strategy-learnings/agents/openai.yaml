@@ -1,0 +1,4 @@
+interface:
+  display_name: "Option Strategy Learning Recorder"
+  short_description: "将 plan mode 中关于期权策略细节考量的对话沉淀为 docs/learnt 文档"
+  default_prompt: "Use $recording-option-strategy-learnings to turn plan mode conversations about option strategy details into reusable docs/learnt notes, keeping scenario splits, release conditions, failure modes, and validation checklists explicit."
