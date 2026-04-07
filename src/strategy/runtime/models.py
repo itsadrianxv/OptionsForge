@@ -40,6 +40,9 @@ class OpenPipelineRoles:
 @dataclass(slots=True)
 class ClosePipelineRoles:
     risk_evaluator: RuntimeCallable | None = None
+    exit_intent_provider: RuntimeCallable | None = None
+    exposure_group_resolver: RuntimeCallable | None = None
+    freshness_guard: RuntimeCallable | None = None
     close_volume_planner: RuntimeCallable | None = None
     execution_planner: RuntimeCallable | None = None
     execution_scheduler: RuntimeCallable | None = None

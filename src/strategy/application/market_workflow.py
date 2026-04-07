@@ -21,7 +21,9 @@ from ..domain.value_object.signal.strategy_contract import (
     SignalContext,
     SignalDecision,
 )
+from ..domain.value_object.trading import ExitIntent, FreshnessCheckResult, FreshnessState
 from ..infrastructure.parsing.contract_helper import ContractHelper
+from .exit_workflow import ExitWorkflow
 
 if TYPE_CHECKING:
     from src.strategy.strategy_entry import StrategyEntry
@@ -370,6 +372,115 @@ class MarketWorkflow:
         )
         trace.append_stage("indicator", "ok", indicator_result.summary or "沿用本 bar 指标结果")
 
+        provider_intent = self._close_pipeline_role("exit_intent_provider")
+        if provider_intent is not None and getattr(self.entry, "position_aggregate", None) is not None:
+            raw_candidate = provider_intent(
+                underlying_vt_symbol=vt_symbol,
+                instrument=instrument,
+                position=position,
+                bar_data=bar_data,
+                indicator_result=indicator_result,
+                option_chain=option_chain,
+            )
+            candidate = self._normalize_exit_intent_candidate(
+                raw_candidate,
+                default_subject_key=str(getattr(position, "vt_symbol", vt_symbol) or vt_symbol),
+                default_scope_key=f"underlying:{vt_symbol}",
+            )
+            if candidate is None:
+                trace.append_stage("exit_intent", "noop", "未触发 provider 退出意图")
+                return trace
+
+            trace.signal_name = str(candidate["reason_code"])
+            trace.append_stage(
+                "exit_intent",
+                "ok",
+                str(candidate["reason_code"]),
+                {
+                    "subject_key": candidate["subject_key"],
+                    "reason_code": candidate["reason_code"],
+                    "priority": candidate["priority"],
+                    "scope_key": candidate["scope_key"],
+                },
+            )
+
+            exit_workflow = ExitWorkflow(self.entry)
+            exit_workflow.ensure_exit_intent(
+                subject_key=str(candidate["subject_key"]),
+                reason_code=str(candidate["reason_code"]),
+                priority=int(candidate["priority"]),
+                scope_key=str(candidate["scope_key"]),
+                override_price=candidate.get("override_price"),
+                metadata=dict(candidate.get("metadata", {}) or {}),
+            )
+
+            exposure_group_key = ""
+            group_resolver = self._close_pipeline_role("exposure_group_resolver")
+            if group_resolver is not None:
+                resolved_group = group_resolver(
+                    underlying_vt_symbol=vt_symbol,
+                    instrument=instrument,
+                    position=position,
+                    exit_intent=candidate,
+                    bar_data=bar_data,
+                    indicator_result=indicator_result,
+                    option_chain=option_chain,
+                )
+                exposure_group_key = str(resolved_group or "")
+                if exposure_group_key:
+                    trace.append_stage(
+                        "exposure_group",
+                        "ok",
+                        exposure_group_key,
+                        {"group_key": exposure_group_key},
+                    )
+
+            close_volume_planner = self._close_pipeline_role("close_volume_planner")
+            close_payload = close_volume_planner(position) if close_volume_planner is not None else None
+
+            freshness_guard = self._close_pipeline_role("freshness_guard")
+            if freshness_guard is not None:
+                freshness = self._normalize_freshness_result(
+                    freshness_guard(
+                        underlying_vt_symbol=vt_symbol,
+                        instrument=instrument,
+                        position=position,
+                        exit_intent=candidate,
+                        exposure_group_key=exposure_group_key,
+                        close_payload=close_payload,
+                        bar_data=bar_data,
+                        indicator_result=indicator_result,
+                        option_chain=option_chain,
+                    )
+                )
+                trace.append_stage(
+                    "freshness",
+                    "ok" if freshness.is_ready else "deferred",
+                    freshness.detail or freshness.state.value,
+                    {"state": freshness.state.value, "detail": freshness.detail},
+                )
+                if not freshness.is_ready:
+                    decision = exit_workflow.apply_recovery_decision(
+                        subject_key=str(candidate["subject_key"]),
+                        scope_key=str(candidate["scope_key"]),
+                        reason_code=str(candidate["reason_code"]),
+                        freshness=freshness,
+                        remaining_exposure=self._resolve_remaining_exposure(close_payload, position),
+                    )
+                    trace.append_stage(
+                        "recovery",
+                        "deferred",
+                        decision.detail or decision.action.value,
+                        {"action": decision.action.value},
+                    )
+                    return trace
+
+            if close_payload is None:
+                trace.append_stage("execution_plan", "skipped", "未启用平仓计划能力")
+            else:
+                trace.append_stage("execution_plan", "planned", "生成平仓计划骨架", close_payload)
+            return trace
+
         signal_context = SignalContext(
             vt_symbol=vt_symbol,
             timestamp=bar_data["datetime"],
@@ -404,6 +515,65 @@ class MarketWorkflow:
         else:
             trace.append_stage("execution_plan", "planned", "生成平仓计划骨架", close_payload)
         return trace
+
+    def _normalize_exit_intent_candidate(
+        self,
+        raw_candidate: Any,
+        *,
+        default_subject_key: str,
+        default_scope_key: str,
+    ) -> Optional[Dict[str, Any]]:
+        if raw_candidate is None:
+            return None
+        if isinstance(raw_candidate, ExitIntent):
+            payload = raw_candidate.to_dict()
+        elif isinstance(raw_candidate, dict):
+            payload = dict(raw_candidate)
+        else:
+            payload = {
+                "reason_code": str(getattr(raw_candidate, "reason_code", "") or ""),
+                "priority": int(getattr(raw_candidate, "priority", 0) or 0),
+                "subject_key": str(getattr(raw_candidate, "subject_key", "") or ""),
+                "scope_key": str(getattr(raw_candidate, "scope_key", "") or ""),
+                "override_price": getattr(raw_candidate, "override_price", None),
+                "metadata": dict(getattr(raw_candidate, "metadata", {}) or {}),
+            }
+
+        reason_code = str(payload.get("reason_code", "") or "")
+        if not reason_code:
+            return None
+        return {
+            "subject_key": str(payload.get("subject_key", "") or default_subject_key),
+            "reason_code": reason_code,
+            "priority": int(payload.get("priority", 0) or 0),
+            "scope_key": str(payload.get("scope_key", "") or default_scope_key),
+            "override_price": payload.get("override_price"),
+            "metadata": dict(payload.get("metadata", {}) or {}),
+        }
+
+    def _normalize_freshness_result(self, raw_result: Any) -> FreshnessCheckResult:
+        if isinstance(raw_result, FreshnessCheckResult):
+            return raw_result
+        if isinstance(raw_result, dict):
+            state_value = str(raw_result.get("state", FreshnessState.DEFERRED.value) or FreshnessState.DEFERRED.value)
+            try:
+                state = FreshnessState(state_value)
+            except ValueError:
+                state = FreshnessState.DEFERRED
+            return FreshnessCheckResult(
+                state=state,
+                detail=str(raw_result.get("detail", "") or ""),
+                metadata=dict(raw_result.get("metadata", {}) or {}),
+            )
+        return FreshnessCheckResult(state=FreshnessState.DEFERRED, detail="freshness result unavailable")
+
+    def _resolve_remaining_exposure(self, close_payload: Any, position: Any) -> int:
+        if isinstance(close_payload, dict):
+            if "remaining_exposure" in close_payload:
+                return int(close_payload.get("remaining_exposure", 0) or 0)
+            if "volume" in close_payload:
+                return int(close_payload.get("volume", 0) or 0)
+        return int(getattr(position, "volume", 0) or 0)
 
     def _build_indicator_context(
         self,

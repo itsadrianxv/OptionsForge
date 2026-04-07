@@ -57,6 +57,15 @@ CAPABILITY_REGISTRY: dict[str, CapabilitySpec] = {
             "close_pipeline.risk_evaluator",
         ),
     ),
+    "exit_orchestration": CapabilitySpec(
+        key="exit_orchestration",
+        provider_import_path="src.strategy.runtime.providers.exit_orchestration",
+        single_roles=(
+            "close_pipeline.exit_intent_provider",
+            "close_pipeline.exposure_group_resolver",
+            "close_pipeline.freshness_guard",
+        ),
+    ),
     "smart_order_executor": CapabilitySpec(
         key="smart_order_executor",
         provider_import_path="src.strategy.runtime.providers.smart_order_executor",

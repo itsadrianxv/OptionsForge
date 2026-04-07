@@ -41,3 +41,21 @@ def test_portfolio_risk_provider_contributes_open_and_close_risk_roles() -> None
 
     assert contribution.open_pipeline.risk_evaluator is not None
     assert contribution.close_pipeline.risk_evaluator is not None
+
+
+def test_exit_orchestration_provider_contributes_generic_close_roles() -> None:
+    from src.strategy.runtime.providers.exit_orchestration import PROVIDER
+
+    contribution = PROVIDER.build(
+        SimpleNamespace(
+            exit_intent_provider=SimpleNamespace(provide=lambda **kwargs: None),
+            exit_group_resolver=SimpleNamespace(resolve=lambda **kwargs: "group-key"),
+            exit_freshness_guard=SimpleNamespace(check=lambda **kwargs: None),
+        ),
+        {"service_activation": _manifest(exit_orchestration=True)},
+        kernel=SimpleNamespace(),
+    )
+
+    assert contribution.close_pipeline.exit_intent_provider is not None
+    assert contribution.close_pipeline.exposure_group_resolver is not None
+    assert contribution.close_pipeline.freshness_guard is not None

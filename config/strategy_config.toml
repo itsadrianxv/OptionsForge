@@ -27,6 +27,7 @@ position_sizing = false
 pricing_engine = false
 greeks_calculator = false
 portfolio_risk = false
+exit_orchestration = false
 smart_order_executor = false
 advanced_order_scheduler = false
 delta_hedging = false

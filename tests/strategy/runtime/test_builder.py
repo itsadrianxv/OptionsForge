@@ -57,3 +57,19 @@ def test_builder_rejects_multiple_rebalance_planners() -> None:
                 )
             },
         )
+
+
+def test_builder_wires_exit_orchestration_roles() -> None:
+    runtime = StrategyRuntimeBuilder().build(
+        SimpleNamespace(
+            logger=SimpleNamespace(info=lambda *a, **k: None),
+            exit_intent_provider=SimpleNamespace(provide=lambda **kwargs: None),
+            exit_group_resolver=SimpleNamespace(resolve=lambda **kwargs: "group-key"),
+            exit_freshness_guard=SimpleNamespace(check=lambda **kwargs: None),
+        ),
+        {"service_activation": _manifest(exit_orchestration=True)},
+    )
+
+    assert runtime.close_pipeline.exit_intent_provider is not None
+    assert runtime.close_pipeline.exposure_group_resolver is not None
+    assert runtime.close_pipeline.freshness_guard is not None

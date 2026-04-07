@@ -13,6 +13,7 @@ from src.strategy.domain.value_object.signal import (
     OptionSelectionPreference,
     SignalDecision,
 )
+from src.strategy.domain.value_object.trading import FreshnessCheckResult, FreshnessState
 
 
 sys.modules.setdefault("vnpy", MagicMock())
@@ -22,7 +23,9 @@ sys.modules.setdefault("vnpy.trader", MagicMock())
 sys.modules.setdefault("vnpy.trader.constant", MagicMock())
 sys.modules.setdefault("vnpy.trader.engine", MagicMock())
 sys.modules.setdefault("vnpy.trader.event", MagicMock())
+sys.modules.setdefault("vnpy.trader.logger", MagicMock())
 sys.modules.setdefault("vnpy.trader.object", MagicMock())
+sys.modules.setdefault("vnpy.trader.setting", MagicMock())
 sys.modules.setdefault("vnpy_portfoliostrategy", MagicMock())
 sys.modules.setdefault("vnpy_portfoliostrategy.utility", MagicMock())
 
@@ -198,3 +201,111 @@ def test_market_workflow_emits_decision_trace_for_open_pipeline() -> None:
     execution_planner.assert_called_once()
     execution_scheduler.assert_called_once()
     rebalance_planner.assert_called_once()
+
+
+def test_market_workflow_uses_exit_provider_roles_to_record_generic_exit_intent() -> None:
+    captured_traces: list[dict] = []
+    entry = SimpleNamespace()
+    entry.position_aggregate = PositionAggregate()
+    position = entry.position_aggregate.create_position(
+        option_vt_symbol="IO2506-C-3800.CFFEX",
+        underlying_vt_symbol="IF2506.CFFEX",
+        signal="seed",
+        target_volume=2,
+    )
+    position.volume = 2
+    entry.runtime = SimpleNamespace(
+        observability=SimpleNamespace(trace_sinks=[captured_traces.append]),
+        close_pipeline=SimpleNamespace(
+            exit_intent_provider=lambda **kwargs: {
+                "subject_key": position.vt_symbol,
+                "reason_code": "guarded_exit",
+                "priority": 60,
+                "scope_key": "underlying:IF2506.CFFEX",
+            },
+            exposure_group_resolver=lambda **kwargs: "group:IF2506.CFFEX",
+            freshness_guard=lambda **kwargs: FreshnessCheckResult.ready(detail="fresh"),
+            close_volume_planner=lambda current_position: {
+                "vt_symbol": current_position.vt_symbol,
+                "volume": 2,
+                "price": 10.0,
+            },
+        ),
+    )
+    entry.signal_service = SimpleNamespace(check_close_signal=lambda *args, **kwargs: None)
+    entry.observability_config = {"emit_noop_decisions": False}
+    entry.logger = MagicMock()
+    entry.last_decision_trace = None
+
+    workflow = MarketWorkflow(entry)
+    trace = workflow._run_close_pipeline(
+        vt_symbol="IF2506.CFFEX",
+        instrument=SimpleNamespace(latest_close=100.5),
+        position=position,
+        bar_data={"datetime": datetime(2026, 1, 2, 10, 0, 0)},
+        indicator_result=IndicatorComputationResult.noop("close indicator"),
+        option_chain=None,
+    )
+
+    intent = entry.position_aggregate.get_exit_intent(position.vt_symbol)
+
+    assert intent is not None
+    assert intent.reason_code == "guarded_exit"
+    assert any(stage.stage == "exit_intent" for stage in trace.stages)
+    assert any(stage.stage == "exposure_group" for stage in trace.stages)
+    assert any(stage.stage == "freshness" and stage.status == "ok" for stage in trace.stages)
+    assert any(stage.stage == "execution_plan" and stage.status == "planned" for stage in trace.stages)
+
+
+def test_market_workflow_defers_execution_plan_when_exit_freshness_is_not_ready() -> None:
+    entry = SimpleNamespace()
+    entry.position_aggregate = PositionAggregate()
+    position = entry.position_aggregate.create_position(
+        option_vt_symbol="IO2506-C-3800.CFFEX",
+        underlying_vt_symbol="IF2506.CFFEX",
+        signal="seed",
+        target_volume=2,
+    )
+    position.volume = 2
+    entry.runtime = SimpleNamespace(
+        observability=SimpleNamespace(trace_sinks=[]),
+        close_pipeline=SimpleNamespace(
+            exit_intent_provider=lambda **kwargs: {
+                "subject_key": position.vt_symbol,
+                "reason_code": "guarded_exit",
+                "priority": 60,
+                "scope_key": "underlying:IF2506.CFFEX",
+            },
+            exposure_group_resolver=lambda **kwargs: "group:IF2506.CFFEX",
+            freshness_guard=lambda **kwargs: FreshnessCheckResult(
+                state=FreshnessState.STALE,
+                detail="mirror lagging",
+            ),
+            close_volume_planner=lambda current_position: {
+                "vt_symbol": current_position.vt_symbol,
+                "volume": 2,
+                "price": 10.0,
+            },
+        ),
+    )
+    entry.signal_service = SimpleNamespace(check_close_signal=lambda *args, **kwargs: None)
+    entry.observability_config = {"emit_noop_decisions": False}
+    entry.logger = MagicMock()
+    entry.last_decision_trace = None
+
+    workflow = MarketWorkflow(entry)
+    trace = workflow._run_close_pipeline(
+        vt_symbol="IF2506.CFFEX",
+        instrument=SimpleNamespace(latest_close=100.5),
+        position=position,
+        bar_data={"datetime": datetime(2026, 1, 2, 10, 0, 0)},
+        indicator_result=IndicatorComputationResult.noop("close indicator"),
+        option_chain=None,
+    )
+
+    summary = entry.position_aggregate.get_scope_exit_preempt_summary("underlying:IF2506.CFFEX")
+
+    assert any(stage.stage == "freshness" and stage.status == "deferred" for stage in trace.stages)
+    assert any(stage.stage == "recovery" and stage.status == "deferred" for stage in trace.stages)
+    assert not any(stage.stage == "execution_plan" and stage.status == "planned" for stage in trace.stages)
+    assert summary["locked"] is True
