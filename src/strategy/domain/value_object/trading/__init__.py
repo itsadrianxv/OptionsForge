@@ -15,6 +15,7 @@ from .execution_state import (
 )
 from .exit_intent import ExitIntent
 from .exit_preempt_state import ExitPreemptState
+from .freshness_check import FreshnessCheckResult, FreshnessState
 from .advanced_order import (
     AdvancedOrderType, AdvancedOrderStatus,
     AdvancedOrderRequest, AdvancedOrder, ChildOrder, SliceEntry,
@@ -35,6 +36,8 @@ __all__ = [
     "CombinationExecutionState",
     "ExitIntent",
     "ExitPreemptState",
+    "FreshnessCheckResult",
+    "FreshnessState",
     "AdvancedOrderType",
     "AdvancedOrderStatus",
     "AdvancedOrderRequest",

@@ -128,3 +128,29 @@ def test_scope_exit_preempt_summary_roundtrip_preserves_reason_state() -> None:
     assert state.condition_active is True
     assert state.inflight is True
     assert state.locked is True
+
+
+def test_pending_order_views_follow_ownership_scope() -> None:
+    aggregate = PositionAggregate()
+    managed_order = Order(
+        vt_orderid="ORDER-1",
+        vt_symbol="IO2506-C-3800.CFFEX",
+        direction=Direction.SHORT,
+        offset=Offset.OPEN,
+        volume=1,
+    )
+    observed_order = Order(
+        vt_orderid="ORDER-2",
+        vt_symbol="IO2506-C-3900.CFFEX",
+        direction=Direction.LONG,
+        offset=Offset.OPEN,
+        volume=1,
+    )
+    aggregate.add_pending_order(managed_order)
+    aggregate.add_pending_order(observed_order)
+
+    actionable_ids = [order.vt_orderid for order in aggregate.get_strategy_actionable_orders()]
+    observed_ids = [order.vt_orderid for order in aggregate.get_observed_external_orders()]
+
+    assert actionable_ids == ["ORDER-1"]
+    assert observed_ids == ["ORDER-2"]

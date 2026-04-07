@@ -160,6 +160,20 @@ class PositionAggregate:
     def get_all_pending_orders(self) -> List[Order]:
         return list(self._pending_orders.values())
 
+    def get_strategy_actionable_orders(self) -> List[Order]:
+        return [
+            order
+            for order in self._pending_orders.values()
+            if order.is_strategy_actionable
+        ]
+
+    def get_observed_external_orders(self) -> List[Order]:
+        return [
+            order
+            for order in self._pending_orders.values()
+            if order.is_observed_external
+        ]
+
     def get_execution_state(self, vt_symbol: str) -> PositionExecutionState:
         return self._ensure_execution_state(vt_symbol)
 
