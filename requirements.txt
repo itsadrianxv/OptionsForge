@@ -45,7 +45,7 @@ packaging==26.0
 pandas==2.3.3
 peewee==3.19.0
 platformdirs==4.5.1
-plotly==6.5.2
+plotly==6.7.0
 pluggy==1.6.0
 propcache==0.4.1
 psutil==7.2.1
